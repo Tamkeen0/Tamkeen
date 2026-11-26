@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in refs/heads/*) ;; *) echo 'Only assigned feature branches may be pushed with hooks active.' >&2; exit 1;; esac
+  branch=${remote_ref#refs/heads/}
+  if [ "$local_ref" != "$remote_ref" ]; then echo 'Push the matching local feature branch only.' >&2; exit 1; fi
+  git fetch --no-tags origin main:refs/remotes/origin/main
+  python scripts/scope_guard.py --branch "$branch" --base origin/main --head "$local_sha"
+done

@@ -1,0 +1,44 @@
+{
+  "feature/frontend": {
+    "owner": "AhmadMedhatAteya",
+    "paths": [
+      "frontend/src/ui/"
+    ]
+  },
+  "feature/document-ai": {
+    "owner": "shahdfarraj",
+    "paths": [
+      "document_engine/"
+    ]
+  },
+  "feature/voice": {
+    "owner": "celinend",
+    "paths": [
+      "frontend/src/voice/"
+    ]
+  },
+  "feature/backend": {
+    "owner": "Ligux01",
+    "paths": [
+      "backend/",
+      "contracts/",
+      "fixtures/",
+      "tests/",
+      "frontend/package.json",
+      "frontend/package-lock.json",
+      "frontend/index.html",
+      "frontend/tsconfig.json",
+      "frontend/vite.config.ts",
+      "frontend/src/main.tsx",
+      "frontend/src/vite-env.d.ts",
+      ".env.example",
+      "README.md"
+    ]
+  },
+  "integration/lead": {
+    "owner": "Ligux01",
+    "paths": [
+      "*"
+    ]
+  }
+}
