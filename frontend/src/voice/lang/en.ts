@@ -27,7 +27,12 @@ export const en: LanguagePack = {
   commands: {
     next: ['next', 'next question', 'forward', 'skip'],
     previous: ['previous', 'previous question', 'back', 'prior question'],
-    repeat: ['repeat', 'repeat question', 'repeat that', 'again', 'say again', 'say that again', 'read again', 'read question', 'read it again'],
+    repeat: [
+      'repeat', 'repeat question', 'repeat that', 'again', 'say again', 'say that again', 'read again', 'read question',
+      'read it again', 'read the question again', 'read the current question', 'read the current question again',
+      'repeat the current question', 'read this question', 'read this question again', 'what is the question',
+      'what was the question',
+    ],
     dictate: ['dictate', 'dictation', 'start dictation', 'answer', 'start answer', 'record answer', 'write answer', 'answer question'],
     confirm: ['confirm', 'confirm answer', 'save', 'save answer', 'yes confirm'],
     cancel: ['cancel', 'cancel that', 'stop', 'no', 'never mind', 'abort'],
@@ -72,6 +77,40 @@ export const en: LanguagePack = {
   ],
   betweenWords: ['between'],
   andWords: ['and', 'to'],
+  ordinals: {
+    first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, '1st': 1, '2nd': 2, '3rd': 3, '4th': 4, '5th': 5,
+    last: -1, final: -1,
+  },
+  pronouns: ['it', 'its', 'that', 'this'],
+  otherWords: ['other', 'another'],
+  placePronouns: ['there'],
+  existentialWords: ['is', 'are', 'isnt', 'arent', 'was', 'were'],
+  terminalWords: ['terminal', 'terminals', 'end', 'ends', 'side', 'lead'],
+  attributeWords: ['value', 'values', 'kind', 'type', 'rating', 'resistance'],
+  // Deliberately excludes "answer", "current", "power": they also occur in ordinary
+  // commands or dictation ("the answer is…", "current question"). Phrases cover those.
+  unsupportedWords: [
+    'solve', 'solved', 'solving', 'solution', 'solutions', 'calculate', 'calculation', 'compute', 'hint', 'hints',
+    'clue', 'clues', 'formula', 'formulas', 'equation', 'equations', 'equivalent', 'simplify', 'explain', 'kirchhoff',
+    'kirchhoffs', 'kvl', 'kcl', 'thevenin', 'norton', 'superposition', 'mesh', 'nodal', 'series', 'parallel',
+  ],
+  unsupportedPhrases: [
+    'current through', 'current in', 'current flowing', 'voltage across', 'voltage drop', 'total resistance',
+    'how do i', 'how to', 'what should i', 'is my answer', 'check my answer', 'give me the answer', 'tell me the answer',
+    'what is the answer', 'whats the answer', 'ohms law',
+  ],
+  unitWords: {
+    ohm: 'ohm', ohms: 'ohm', 'ω': 'ohm', v: 'volt', volt: 'volt', volts: 'volt', a: 'amp', amp: 'amp', amps: 'amp',
+    ampere: 'amp', amperes: 'amp', w: 'watt', watt: 'watt', watts: 'watt', f: 'farad', farad: 'farad',
+    farads: 'farad', h: 'henry', henry: 'henry', henries: 'henry', hz: 'hertz', hertz: 'hertz',
+    // Prefixed units are separate families: "3 mA" never matches "3 A".
+    ma: 'milliamp', milliamp: 'milliamp', milliamps: 'milliamp', mv: 'millivolt', millivolt: 'millivolt',
+    millivolts: 'millivolt', kv: 'kilovolt', kilovolt: 'kilovolt', kilovolts: 'kilovolt', 'kω': 'kilohm',
+    kohm: 'kilohm', kohms: 'kilohm', kilohm: 'kilohm', kilohms: 'kilohm', 'μf': 'microfarad', uf: 'microfarad',
+    microfarad: 'microfarad', microfarads: 'microfarad', nf: 'nanofarad', nanofarad: 'nanofarad',
+    nanofarads: 'nanofarad', khz: 'kilohertz', kilohertz: 'kilohertz', mw: 'milliwatt', milliwatt: 'milliwatt',
+    milliwatts: 'milliwatt',
+  },
   kindNames: {},
 
   responses: {
@@ -99,6 +138,18 @@ export const en: LanguagePack = {
       `The diagram has ${cs.length} ${plural(cs.length, 'component')}: ${join(cs.map((c) => `${c.id} (${c.kind})`))}.`,
     kindList: (kind, cs) =>
       `There ${cs.length === 1 ? 'is' : 'are'} ${cs.length} ${plural(cs.length, kind)}. ${cs.map((c) => en.responses.component(c)).join(' ')}`,
+    whichOne: (ex) => `Which component do you mean? Say its name, such as ${ex.component}.`,
+    matches: (cs) =>
+      `${cs.length} components match: ${join(cs.map(short))}. Say a name, such as ${cs[0]?.id ?? 'R1'}, for details.`,
+    noMatch: (cs) => `No component in this diagram matches that. Components are ${join(cs.map((c) => c.id))}.`,
+    noneAtNode: (kind, n) => `No ${kind} is connected to node ${n}.`,
+    noOther: (kind) => `There is no other ${kind} in this diagram.`,
+    whichNode: (ex) => `Which node do you mean? Say, for example, node ${ex.node}.`,
+    whichAtNode: (n, cs) => `Node ${n} has ${cs.length} components: ${join(cs.map((c) => c.id))}. Which one do you mean?`,
+    othersAtNode: (n, excluded, cs) => {
+      const lead = excluded ? `Besides ${excluded}, node ${n}` : `Node ${n}`;
+      return cs.length ? `${lead} is connected to ${join(cs.map(short))}.` : `${lead} has no other components.`;
+    },
     overview: (d, nodes, cs) =>
       `${sentence(d.description)} ${en.responses.nodeList(nodes)} ${en.responses.componentList(cs)}${
         cs.length && nodes.length ? ` Ask about a component, such as ${cs[0].id}, or a node, such as node ${nodes[0]}.` : ''

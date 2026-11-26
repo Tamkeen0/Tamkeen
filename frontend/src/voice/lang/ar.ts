@@ -93,6 +93,20 @@ export const ar: LanguagePack = {
   ],
   betweenWords: ['بين'],
   andWords: ['و'],
+  ordinals: { الأول: 1, الأولى: 1, الثاني: 2, الثانية: 2, الثالث: 3, الثالثة: 3, الرابع: 4, الخامس: 5, الأخير: -1, الأخيرة: -1 },
+  // Arabic pronouns are mostly attached suffixes (قيمته); contextual pronouns are English-only for now.
+  pronouns: [],
+  otherWords: ['الآخر', 'الأخرى', 'آخر', 'أخرى'],
+  placePronouns: ['هناك'],
+  existentialWords: ['هل', 'يوجد', 'توجد'],
+  terminalWords: ['طرف', 'الطرف', 'أطراف', 'نهاية'],
+  attributeWords: ['قيمة', 'القيمة', 'نوع', 'النوع'],
+  unsupportedWords: [
+    'حل', 'الحل', 'احسب', 'حساب', 'تلميح', 'تلميحات', 'معادلة', 'قانون', 'توالي', 'التوالي', 'توازي', 'التوازي',
+    'مكافئ', 'المكافئة', 'اشرح', 'كيرشوف',
+  ],
+  unsupportedPhrases: ['ما الإجابة', 'ما هو الجواب', 'التيار في', 'التيار المار'],
+  unitWords: { أوم: 'ohm', فولت: 'volt', أمبير: 'amp', واط: 'watt', فاراد: 'farad', هنري: 'henry', هرتز: 'hertz' },
   kindNames: KIND_NAMES,
 
   responses: {
@@ -118,6 +132,17 @@ export const ar: LanguagePack = {
       `عدد المكونات في المخطط: ${cs.length}، وهي ${join(cs.map((c) => `${c.id} (${kindName(c.kind)})`))}.`,
     kindList: (kind, cs) =>
       `عدد ${kindName(kind, 2)}: ${cs.length}. ${cs.map((c) => ar.responses.component(c)).join(' ')}`,
+    whichOne: (ex) => `أي مكون تقصد؟ قل اسمه، مثل ${ex.component}.`,
+    matches: (cs) => `يطابق ${cs.length} مكونات: ${join(cs.map(short))}. قل اسم المكون، مثل ${cs[0]?.id ?? 'R1'}، لمعرفة التفاصيل.`,
+    noMatch: (cs) => `لا يوجد مكون في هذا المخطط يطابق ذلك. المكونات هي ${join(cs.map((c) => c.id))}.`,
+    noneAtNode: (kind, n) => `لا يوجد ${kindName(kind)} موصول بالعقدة ${n}.`,
+    noOther: (kind) => `لا يوجد ${kindName(kind)} آخر في هذا المخطط.`,
+    whichNode: (ex) => `أي عقدة تقصد؟ قل مثلاً العقدة ${ex.node}.`,
+    whichAtNode: (n, cs) => `العقدة ${n} موصولة بـ ${cs.length} مكونات: ${join(cs.map((c) => c.id))}. أيها تقصد؟`,
+    othersAtNode: (n, excluded, cs) => {
+      const lead = excluded ? `غير ${excluded}، العقدة ${n}` : `العقدة ${n}`;
+      return cs.length ? `${lead} موصولة بـ ${join(cs.map(short))}.` : `${lead} ليس لها مكونات أخرى.`;
+    },
     overview: (d, nodes, cs) =>
       `${sentence(d.description)} ${ar.responses.nodeList(nodes)} ${ar.responses.componentList(cs)}${
         cs.length && nodes.length ? ` اسأل عن مكون مثل ${cs[0].id} أو عن عقدة مثل العقدة ${nodes[0]}.` : ''

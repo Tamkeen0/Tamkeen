@@ -19,6 +19,13 @@ const COMMAND_KEYWORDS = new Set<string>();
 const EXPLORE_STARTERS = new Set<string>();
 const EXPLORE_STRIP: string[][] = [];
 const COMMAND_PHRASES = new Map<string, SimpleCommandType>();
+const UNSUPPORTED_WORDS = new Set<string>();
+const UNSUPPORTED_PHRASES: string[][] = [];
+
+for (const pack of ALL_PACKS) {
+  for (const w of pack.unsupportedWords) UNSUPPORTED_WORDS.add(normalizeText(w));
+  for (const p of pack.unsupportedPhrases) UNSUPPORTED_PHRASES.push(tokenize(normalizeText(p)));
+}
 
 for (const pack of ALL_PACKS) {
   for (const w of pack.fillers) FILLERS.add(normalizeText(w));
@@ -54,6 +61,11 @@ function isExplore(tokens: string[], normalized: string): boolean {
   return COMPONENT_ID_PATTERN.test(normalized);
 }
 
+function isUnsupportedRequest(tokens: string[]): boolean {
+  if (tokens.some((t) => UNSUPPORTED_WORDS.has(t))) return true;
+  return UNSUPPORTED_PHRASES.some((p) => tokens.some((_, i) => p.length > 0 && p.every((w, k) => tokens[i + k] === w)));
+}
+
 function exploreQuery(tokens: string[]): string {
   for (const p of EXPLORE_STRIP) {
     if (startsWith(tokens, p)) return tokens.slice(p.length).join(' ');
@@ -74,6 +86,10 @@ export function parseCommand(text: string): VoiceCommand {
   if (tokens.some((t) => NEGATIONS.has(t)) && tokens.some((t) => COMMAND_KEYWORDS.has(t))) {
     return { type: 'unknown' };
   }
+
+  // "Solve this circuit", "give me a hint": the contract has no "unsupported" command,
+  // so route to explore; describeDiagram() answers with the fixed refusal (even with no diagram).
+  if (isUnsupportedRequest(tokens)) return { type: 'explore', query: tokens.join(' ') };
 
   if (tokens.length <= MAX_EXPLORE_TOKENS && isExplore(tokens, normalized)) {
     return { type: 'explore', query: exploreQuery(tokens) };

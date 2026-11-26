@@ -18,8 +18,12 @@ export {
 export type { ListenOptions, SpeechEnvironment } from './speech';
 
 export { parseCommand } from './parser';
-export { describeDiagram } from './diagram';
+export { parseNavigation } from './navigation';
+export type { NavigationCommand } from './navigation';
+export { describeDiagram, createDiagramExplorer } from './diagram';
+export type { DiagramExplorer, DiagramFocus } from './diagram';
 export { readBackText } from './readback';
+export { questionSpeech, prompts, recoveryPrompt, needsKeyboardFallback, COMMAND_SUMMARY } from './prompts';
 
 export { VoiceError, isVoiceError } from './errors';
 export type { VoiceErrorCode } from './errors';

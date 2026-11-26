@@ -10,6 +10,11 @@
       :focus-visible { outline: 3px solid #1a5fb4; outline-offset: 2px; }
       #log { border: 1px solid #888; padding: 0.5rem; min-height: 8rem; white-space: pre-wrap; }
       fieldset { margin: 1rem 0; }
+      table { border-collapse: collapse; margin-top: 0.5rem; }
+      th, td { border: 1px solid #888; padding: 0.2rem 0.5rem; text-align: left; }
+      caption { text-align: left; font-weight: 600; }
+      kbd { border: 1px solid #888; border-radius: 3px; padding: 0 0.3rem; }
+      #flowStatus { font-weight: 600; }
     </style>
   </head>
   <body>
@@ -25,6 +30,26 @@
           <option value="ar">العربية (ar-SA)</option>
         </select>
       </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Hands-free exam (voice and keyboard only)</legend>
+      <p id="flowHelp">
+        Press <strong>Start exam</strong> (or Enter on it). Then: <kbd>Space</kbd> = talk once,
+        <kbd>Escape</kbd> = stop or back out. Or type in the box and press Enter.
+        Question 3 uses the circuit selected below. Synthetic demo exam; answers stay in this page only.
+      </p>
+      <button id="flowStart">Start exam</button>
+      <p id="flowStatus" tabindex="-1">Not started.</p>
+      <p><strong>Last message:</strong> <span id="flowAnnounce" role="status" aria-live="polite"></span></p>
+      <label>Type instead of speaking <input id="flowType" size="40" placeholder="e.g. go back to question two" /></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Circuit (synthetic test data)</legend>
+      <label>Circuit <select id="circuit"></select></label>
+      <button id="resetFocus">Reset focus</button>
+      <div id="circuitFacts" aria-live="polite"></div>
     </fieldset>
 
     <fieldset>

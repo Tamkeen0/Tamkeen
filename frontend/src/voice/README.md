@@ -19,7 +19,7 @@ Contract functions (contracts/API.md):
 | `parseCommand(text): VoiceCommand` | Command mode only. See table below. Anything ambiguous → `{type:'unknown'}`. |
 | `describeDiagram(diagram, query, lang?): string` | Factual lookup over approved data, or a fixed refusal. |
 
-Additive helpers (not in the contract; proposed to the lead): `readBackText(answer)`, `VoiceError`,
+Additive helpers (not in the contract; proposed to the lead): `parseNavigation(text)`, `createDiagramExplorer(diagram)`, `readBackText(answer)`, `questionSpeech`/`prompts`/`recoveryPrompt`/`needsKeyboardFallback`, `VoiceError`,
 `isVoiceError`, `isSpeechSupported()`, `isRecognitionSupported()`,
 `isSpeaking()`, `isListening()`, `setLanguage('en'|'ar', bcp47Tag?)`,
 `getLanguage()`, `languageTag()`, `SUPPORTED_LANGUAGES`,
@@ -43,7 +43,42 @@ Two commands at once ("next submit") → `unknown`.
 | explore | "explore …", "what is R1", "node B", "between node A and node B", "list components", "describe the circuit" | "استكشف …"، "ما هي قيمة R1"، "العقدة B"، "بين العقدة A والعقدة B"، "المكونات" |
 
 "yes" alone is deliberately **not** confirm. `parseCommand` accepts both
-languages regardless of `setLanguage`.
+languages regardless of `setLanguage`. Repeat also accepts "read the current question again",
+"read this question", "what is the question".
+
+### Voice-guided navigation (`parseNavigation`, scoped adapter)
+
+| Say | Result | Spoken by the UI (`prompts.*`) |
+|---|---|---|
+| "Go to the next question." | `parseCommand` → `next` | `questionSpeech(…)` |
+| "Go back to question two.", "question 3", "the second question", "the final question" | `{type:'goto', question:2}` (1-based; `-1` = final) | `questionSpeech(…)`, or `noSuchQuestion(n, total)` |
+| "Read the current question again." | `parseCommand` → `repeat` | `questionSpeech(…)` |
+| "How many questions are remaining?", "where am I", "how many have I answered" | `{type:'progress'}` | `progress(index, total, answeredFlags)` → position, how many follow, which are unanswered |
+| "Read my previous answer.", "what was my answer to question 2" | `{type:'readAnswer', question?}` (omitted = current question) | `savedAnswer(index, literal)` (read back with `readBackText`) |
+
+Call `parseNavigation(text)` **first** in command mode, then `parseCommand(text)`. Never in
+dictation mode. Rules the tests enforce:
+- "Read my answer" needs "my"/"I", so "what is the answer" stays a refused solution request, and
+  "is my answer correct" / "check my answer" are never read back (refused instead).
+- Negated ("don't go to question 2") → `null`. "the last question" is ambiguous (previous vs final) → `null`.
+- Chrome's "question to/for" → question 2/4 (only right after "question").
+- While an answer or submission awaits confirmation, navigation is held: `prompts.navigationBlocked` + the reminder.
+- "My previous answer" = the answer already saved for the **current** question.
+
+## Contract requests (for the lead)
+
+File `contracts/types.ts`, type `VoiceCommand`. Proposed additive members, so these can move
+from scoped adapters into `parseCommand` (affects voice + frontend):
+
+```ts
+| { type: 'goto'; question: number }        // parseNavigation today
+| { type: 'progress' }                      // parseNavigation today
+| { type: 'readAnswer'; question?: number } // parseNavigation today
+| { type: 'unsupported' }                   // solution requests; routed to explore + refusal today
+```
+
+Plus the additive exports listed under "Public API". Until approved, the adapters keep the
+contract unchanged.
 
 ## Diagram lookup (`describeDiagram`)
 
@@ -57,6 +92,59 @@ Refused with a fixed message: answer/solve/calculate/current/power/hint/
 formula/series/parallel/equivalent/total resistance/voltage across/drop/
 explain/why/correct… (and Arabic equivalents). The kind name "current source"
 is exempt so it can still be looked up. Unknown items get "not in this diagram".
+
+### Component reference resolution
+
+| Reference | Example | Resolves to (fixture) |
+|---|---|---|
+| explicit id / spoken id | "R2", "are two", "resistor 2" | R2 ("resistor 4" → "There is no R4") |
+| by value (number **and** unit) | "the 4 ohm resistor", "the 12 volt source" | R2, V1 |
+| by order (approved list order) | "the first resistor", "the last component", "the second node" | R1, R2, node B |
+| by place | "the resistor at node C", "the resistor between node B and node C" | R2 |
+| contextual (explorer only) | "its value", "is that connected to node B", "that one", "the other resistor" | last focus / the other one |
+
+- Several matches → listed ("2 components match: …"), never guessed. No match → "No component … matches".
+- Prefixed units are separate: "3 mA" never matches "3 A"; "100 kilohm" never matches "100 ohms".
+- A pronoun with nothing discussed yet → "Which component do you mean?".
+- "this circuit", "components that touch node B" are not treated as references.
+- Refusals run first: "the current through it", "is it in series with R1" are refused; a refusal does not move the focus.
+- Nothing is derived from component-to-component relations (no "the one in series with R1").
+
+`createDiagramExplorer(diagram)` (additive helper) wraps the same lookup and
+remembers the last single component/node answered:
+
+```ts
+const explorer = createDiagramExplorer(question.diagram); // new one per question
+speak(explorer.ask('R2'));               // "R2 is a resistor with value 4 ohms, …"
+speak(explorer.ask('what is its value')); // same R2
+speak(explorer.ask('the other resistor')); // R1
+explorer.reset();                         // or create a new explorer on question change
+```
+
+More contextual references (explorer):
+
+| Conversation | Answer |
+|---|---|
+| "What is R2?" → "What is connected to its first node?" → "What other components are connected there?" | R2 → node B → "Besides R2, node B is connected to R1 … and R3 …" |
+| "What is R2?" → "What is R4?" → "What is its value?" | focus moves to R4 → 2.2 ohms |
+| "What is R2?" → "What is connected to node A?" → "What is its value?" | latest focus is node A → "Node A has 2 components: V1 and R1. Which one do you mean?" |
+
+- Terminals: "its first node", "the second terminal of R2", "the other end of R2" (relative to the node in focus; otherwise asks which node). Terminal order is the approved data order.
+- "there" = the node in focus ("Which node do you mean?" if none); "is there" / "are there" stay existential.
+- "its value" / "its kind" with a node in focus resolves only when the node has one component; otherwise it asks.
+- "other … there/at node B" excludes the last component discussed.
+
+### Solution requests in command mode
+
+`parseCommand("Solve this circuit")` → `{type:'explore', query:'solve this circuit'}` and
+`describeDiagram` / `explorer.ask` return the fixed refusal — **also when the question has no
+diagram** (pass `null`). Words like "answer", "current", "power" alone don't trigger this
+(they appear in dictation and commands); phrases like "current through", "what is the answer" do.
+**Lead proposal:** add `{ type: 'unsupported' }` to `VoiceCommand` so the UI can tell a refused
+request from an exploration; until then this routing keeps the contract unchanged.
+
+`describeDiagram` stays stateless (contract); it resolves everything except pronouns.
+Contextual pronouns are English-only; Arabic supports value/order/place references.
 
 Reply language: Arabic if the query contains Arabic script; else the `lang`
 argument; else `getLanguage()`. Values/descriptions are read verbatim from
@@ -103,7 +191,9 @@ try {
   const cmd = parseCommand(heard);
   switch (cmd.type) {
     case 'next': /* UI moves */ break;
-    case 'explore': await speak(q.diagram ? describeDiagram(q.diagram, cmd.query) : 'No diagram.'); break;
+    // Always call it, even when q.diagram is null: solution requests ("Solve this circuit")
+    // arrive as explore and must get the refusal on every question type.
+    case 'explore': await speak(explorer.ask(cmd.query)); break; // explorer = createDiagramExplorer(q.diagram)
     case 'submit': /* UI asks "Say confirm to submit" — never submit directly */ break;
     case 'unknown': await speak('Not understood. Say help, or use the keyboard.'); break;
   }
@@ -124,6 +214,33 @@ Requirements on the UI:
 4. Call `stopListening()` / `stopSpeaking()` on Escape, question change and unmount.
 5. Start speech from a user gesture (key/click) — Chrome blocks TTS before interaction (`permission-denied`).
 6. Optional language switch: call `setLanguage('ar')` (or `'ar-EG'` tag) and set `<html lang/dir>` in UI.
+
+## Spoken prompts (`prompts.ts`)
+
+`questionSpeech(question, index, total)` reads the number, the approved `accessible_text`,
+MCQ options, a diagram hint and how to answer. `prompts.*` holds read-back/confirm, saved,
+cancelled, not-understood (with the command list), boundaries, submit-confirm (with the
+answered count), submitted and keyboard-mode wording. `recoveryPrompt(error)` turns any
+`VoiceError` into a spoken next step; `needsKeyboardFallback(error)` says when to stop
+retrying the microphone. English only (demo). Every prompt ends with what the student can do next.
+
+## Integration requirements tested (end to end)
+
+`__tests__/session.e2e.test.mjs` drives a scripted blind student through the fixture exam with
+fake microphone/speech and `dev/reference-controller.ts` standing in for the UI
+(dev/test only, not product code; the Chrome test page and `dev/try-session.mjs` run the same controller). The UI should meet the same rules:
+
+1. Command mode → `parseCommand`; dictation mode → literal text, **never** parsed (dictating "submit" saves the answer "submit").
+2. Read back with `prompts.readBack(literal)`; save only on `confirm`. "next", "yes", silence → reminder, nothing saved; `cancel` keeps the old answer; `answer` re-dictates.
+3. `submit` → `prompts.submitConfirm(answered, total)`; only `confirm` submits. `cancel`, "yes", silence, "don't submit" keep the exam active.
+4. `explore` → `explorer.ask(query)` on **every** question (a new explorer per question), so "Solve this circuit" is refused even with no diagram.
+5. Every turn gives spoken **and** `aria-live` feedback; if TTS is unavailable the live region still gets every message.
+6. On `VoiceError`, speak `recoveryPrompt(err)` (plus the current mode's reminder). On `needsKeyboardFallback(err)` or no recognition support, switch to keyboard and say so; the whole exam can be finished by keyboard.
+7. Escape → `stopListening()` + `stopSpeaking()`, and backs out of dictation/confirmation with feedback.
+8. The microphone is never open while TTS speaks (asserted after every test; a mutation that removes the wait is caught).
+
+Not covered here (needs the real UI): focus order, no keyboard traps, visible focus, headings/labels,
+and a screen-reader pass (NVDA/Narrator). None of this replaces testing with blind users.
 
 ## Tests
 

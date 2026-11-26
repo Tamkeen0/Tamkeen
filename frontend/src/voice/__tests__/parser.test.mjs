@@ -62,8 +62,18 @@ test('cheating questions are routed to explore (which refuses), never to a state
   for (const t of ["what's the answer", 'what is the current through R2', 'tell me the answer', 'how do I solve this']) {
     assert.equal(type(t), 'explore', t);
   }
-  assert.equal(type('solve it'), 'unknown');
-  assert.equal(type('give me a hint'), 'unknown');
+});
+
+test('solution and hint requests are routed to explore so the lookup refuses them (not "unknown")', () => {
+  for (const t of ['Solve this circuit', 'solve it', 'give me a hint', 'calculate the current', 'find the current through R2',
+    'find the voltage across R2', 'is R1 in series with R2', 'explain the circuit', 'what formula do I use', "don't solve it"]) {
+    assert.equal(type(t), 'explore', t);
+  }
+  assert.deepEqual(parseCommand('Solve this circuit'), { type: 'explore', query: 'solve this circuit' });
+  // ordinary commands and dictation-like text are unaffected
+  assert.equal(type('answer'), 'dictate');
+  assert.equal(type('the answer is 2x plus 3'), 'unknown');
+  assert.equal(type('repeat the current question'), 'repeat', '"current" alone is not a solution request');
 });
 
 test('dictation-like sentences are not commands', () => {
