@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Voice harness</title>
+    <style>
+      body { font: 16px/1.5 system-ui, sans-serif; max-width: 46rem; margin: 1.5rem auto; padding: 0 1rem; }
+      button, select, input { font: inherit; padding: 0.4rem 0.7rem; margin: 0.2rem 0.2rem 0.2rem 0; }
+      :focus-visible { outline: 3px solid #1a5fb4; outline-offset: 2px; }
+      #log { border: 1px solid #888; padding: 0.5rem; min-height: 8rem; white-space: pre-wrap; }
+      fieldset { margin: 1rem 0; }
+    </style>
+  </head>
+  <body>
+    <h1>Voice module manual test harness</h1>
+    <p>Developer-only page for the Chrome microphone and text-to-speech test. Not part of the student UI.</p>
+    <p id="support"></p>
+
+    <fieldset>
+      <legend>Language</legend>
+      <label>Voice language
+        <select id="lang">
+          <option value="en">English (en-US)</option>
+          <option value="ar">العربية (ar-SA)</option>
+        </select>
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Speech</legend>
+      <label>Text <input id="text" size="40" value="Question 3. Find the current through resistor R2." /></label>
+      <button id="speak">Speak as typed</button>
+      <button id="readBack">Read back (answer check)</button>
+      <button id="stopSpeak">Stop speaking</button>
+    </fieldset>
+
+    <fieldset>
+      <legend>Listening</legend>
+      <button id="listenCmd">Listen for command</button>
+      <button id="listenDictate">Listen for dictation</button>
+      <button id="speakThenListen">Speak, then listen</button>
+      <button id="stopListen">Stop listening</button>
+    </fieldset>
+
+    <fieldset>
+      <legend>Typed command (keyboard fallback)</legend>
+      <label>Command <input id="typed" size="40" placeholder="e.g. explore node B" /></label>
+      <button id="parse">Parse</button>
+    </fieldset>
+
+    <h2>Log</h2>
+    <div id="log" role="log" aria-live="polite"></div>
+
+    <script type="module" src="./harness.ts"></script>
+  </body>
+</html>
