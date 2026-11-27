@@ -13,6 +13,14 @@ npm run build
 
 Open the URL printed by Vite. The app starts in **Demo fixture** mode. Upload a nonempty `.pdf` to open a draft based on `fixtures/demo_exam.json`. The mock treats the file as a placeholder and stores exams and sessions in memory. The Student workspace can also start the prepublished fixture using its prefilled exam ID.
 
+## Trying voice in Chrome
+
+In an integrated checkout that includes `frontend/src/voice/index.ts`, open **Student**, keep exam ID `demo`, and choose **Voice feedback**. Use **Screen reader** for live announcements, **App voice** to hear the app, or enable both. Choose **Start exam**, then test the microphone or continue without it. The microphone check itself is optional.
+
+Use **Listen for command** and say “go to question three”, then “walk me through this diagram”. Say “next part” to advance the circuit tour. Use **Dictate answer** to enter literal text. In a separate command turn, say “add”, “replace”, or “undo” to edit the draft. Review it before saving. Saying “submit” opens a review. Say “confirm” there or use the **Submit exam** button.
+
+Use **Stop voice** or Escape to stop speech. Words already heard during dictation stay in the current question’s draft. The keyboard controls remain available if microphone or app speech fails.
+
 ## Welcome and workspaces
 
 Choose **Professor** or **Student** from the welcome page or main navigation. Returning to Welcome preserves the open workspace state. Changing the data source starts a fresh workspace. The welcome artwork and interface icons are local SVGs. The navy, indigo, and teal palette, typography, spacing, controls, and status styles share CSS tokens in `styles.css`.

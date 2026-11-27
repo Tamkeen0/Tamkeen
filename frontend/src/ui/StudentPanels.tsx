@@ -1,5 +1,6 @@
 import type { Ref } from 'react';
-import type { Diagram, Question } from '../../../contracts/types';
+import type { Diagram, Question, Session } from '../../../contracts/types';
+import { AnswerList } from './components';
 import { Icon } from './icons';
 import type { VoiceActivity } from './voice';
 
@@ -91,8 +92,8 @@ export function QuestionPanel({ question, index, total, answer, answerStatus, lo
   );
 }
 
-export function ReviewPanel({ confirmation, answer, submitMessage, heading, locked, confirm, returnToQuestion, readBack }: {
-  confirmation: Exclude<Confirmation, null>; answer: string; submitMessage: string; heading: Ref<HTMLHeadingElement>;
+export function ReviewPanel({ confirmation, answer, session, submitMessage, heading, locked, confirm, returnToQuestion, readBack }: {
+  confirmation: Exclude<Confirmation, null>; answer: string; session: Session; submitMessage: string; heading: Ref<HTMLHeadingElement>;
   locked: boolean; confirm: () => void; returnToQuestion: () => void; readBack?: () => void;
 }) {
   const reviewingAnswer = confirmation === 'answer';
@@ -100,7 +101,9 @@ export function ReviewPanel({ confirmation, answer, submitMessage, heading, lock
     <section className="panel review-panel" aria-labelledby="review-heading">
       <div className="section-title"><span className="icon-tile"><Icon name={reviewingAnswer ? 'check' : 'inbox'} /></span>
         <h3 id="review-heading" ref={heading} tabIndex={-1}>{reviewingAnswer ? 'Review your answer' : 'Review your submission'}</h3></div>
-      {reviewingAnswer ? <p className="literal receipt" dir="auto"><bdi dir="auto">{answer}</bdi></p> : <p className="submission-message">{submitMessage}</p>}
+      {reviewingAnswer
+        ? <p className="literal receipt" dir="auto"><bdi dir="auto">{answer}</bdi></p>
+        : <><p className="submission-message">{submitMessage}</p><AnswerList session={session} /></>}
       <div className="actions">
         <button type="button" className="primary" disabled={locked} onClick={confirm}>{reviewingAnswer ? 'Confirm answer' : 'Submit exam'}</button>
         <button type="button" disabled={locked} onClick={returnToQuestion}>{reviewingAnswer ? 'Edit answer' : 'Return to questions'}</button>
@@ -110,14 +113,14 @@ export function ReviewPanel({ confirmation, answer, submitMessage, heading, lock
   );
 }
 
-export function SessionPanel({ answered, questions, current, reviewOpen, selectQuestion, busy, voiceAvailable, voicePhase, voiceError, listen, stop }: {
+export function SessionPanel({ answered, questions, current, reviewOpen, selectQuestion, busy, voiceAvailable, voicePhase, voiceError, keyboardOnly, listen, stop, retry }: {
   answered: number; questions: { confirmed: boolean; edited: boolean }[]; current: number; reviewOpen: boolean;
   selectQuestion: (index: number) => void; busy: boolean; voiceAvailable: boolean; voicePhase?: VoiceActivity['phase'];
-  voiceError: boolean; listen: () => void; stop: () => void;
+  voiceError: boolean; keyboardOnly: boolean; listen: () => void; stop: () => void; retry: () => void;
 }) {
   const total = questions.length;
   const confirmedCount = `${answered} of ${total} confirmed`;
-  const voiceState = !voiceAvailable ? 'Unavailable' : voicePhase ? voiceStates[voicePhase]
+  const voiceState = !voiceAvailable || keyboardOnly ? 'Keyboard controls' : voicePhase ? voiceStates[voicePhase]
     : voiceError ? 'Voice error' : reviewOpen ? 'Confirmation required' : 'Ready';
   return (
     <aside className="panel session-panel" aria-labelledby="progress-heading">
@@ -138,9 +141,13 @@ export function SessionPanel({ answered, questions, current, reviewOpen, selectQ
           <span className="voice-state" data-active={Boolean(voicePhase) || undefined}>{voiceState}</span></div>
         {voiceAvailable ? (
           <>
-            <p>Use a voice command to navigate, review, or ask for circuit facts.</p>
+            <p>{keyboardOnly ? 'You can continue with the keyboard.' : reviewOpen
+              ? 'Say “confirm” to confirm the current review or “cancel” to return.'
+              : 'Say “help” for commands or “walk me through this diagram” on a circuit question.'}</p>
             <div className="actions">
-              <button type="button" disabled={busy || Boolean(voicePhase)} onClick={listen}>Listen for command</button>
+              {keyboardOnly
+                ? <button type="button" disabled={busy || Boolean(voicePhase)} onClick={retry}>Retry microphone</button>
+                : <button type="button" disabled={busy || Boolean(voicePhase)} onClick={listen}>Listen for command</button>}
               <button type="button" disabled={!voicePhase || busy} onClick={stop}>Stop voice</button>
             </div>
           </>

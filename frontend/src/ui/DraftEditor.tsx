@@ -79,6 +79,7 @@ export class DraftQuestionError extends UiError {
 
 export function checkDraft(exam: Exam, publishing: boolean) {
   if (!exam.title.trim()) throw new UiError('Enter an exam title.');
+  if (!exam.questions.length) throw new UiError('The draft needs at least one question.');
   exam.questions.forEach((question, index) => {
     const label = `Question ${index + 1}`;
     const invalid = (message: string) => new DraftQuestionError(`${label} ${message}`, index);
@@ -87,6 +88,9 @@ export function checkDraft(exam: Exam, publishing: boolean) {
     if (publishing && question.type === 'diagram' && !question.diagram) throw invalid('needs circuit facts before publication.');
     const diagram = question.diagram;
     if (!diagram) return;
+    if (publishing && question.type === 'diagram' && (!diagram.nodes.length || !diagram.components.length)) {
+      throw invalid('needs the circuit nodes and components before publication.');
+    }
     if (!diagram.description.trim()) throw invalid('needs a circuit description.');
     if (diagram.components.some(component => [component.id, component.kind, component.value, ...component.terminals].some(value => !value.trim()))) {
       throw invalid('needs an ID, kind, visible value, and two terminals for each circuit component.');
