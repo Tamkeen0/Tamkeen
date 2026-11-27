@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Voice harness</title>
+    <style>
+      body { font: 16px/1.5 system-ui, sans-serif; max-width: 46rem; margin: 1.5rem auto; padding: 0 1rem; }
+      button, select, input { font: inherit; padding: 0.4rem 0.7rem; margin: 0.2rem 0.2rem 0.2rem 0; }
+      :focus-visible { outline: 3px solid #1a5fb4; outline-offset: 2px; }
+      #log { border: 1px solid #888; padding: 0.5rem; min-height: 8rem; white-space: pre-wrap; }
+      fieldset { margin: 1rem 0; }
+      table { border-collapse: collapse; margin-top: 0.5rem; }
+      th, td { border: 1px solid #888; padding: 0.2rem 0.5rem; text-align: left; }
+      caption { text-align: left; font-weight: 600; }
+      kbd { border: 1px solid #888; border-radius: 3px; padding: 0 0.3rem; }
+      #flowStatus { font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <h1>Voice module manual test harness</h1>
+    <p>Developer-only page for the Chrome microphone and text-to-speech test. Not part of the student UI.</p>
+    <p id="support"></p>
+
+    <fieldset>
+      <legend>Language</legend>
+      <label>Voice language
+        <select id="lang">
+          <option value="en">English (en-US)</option>
+          <option value="ar">العربية (ar-SA)</option>
+        </select>
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Hands-free exam (voice and keyboard only)</legend>
+      <p id="flowHelp">
+        Choose <strong>Feedback</strong> first (with NVDA running, pick "Screen reader only"), then press
+        <strong>Start exam</strong>. Focus moves to the exam keys area: <kbd>Space</kbd> = talk once,
+        <kbd>Escape</kbd> = stop or back out. Or type in the box and press Enter.
+        Question 3 uses the circuit selected below. Synthetic demo exam; answers stay in this page only.
+      </p>
+      <label>Feedback
+        <select id="flowOutput">
+          <option value="voice">App voice (no screen reader)</option>
+          <option value="screenReader">Screen reader only (NVDA reads it; app stays silent)</option>
+          <option value="both">Both</option>
+        </select>
+      </label>
+      <button id="flowStart">Start exam</button>
+      <!-- role=application: NVDA switches to focus mode here, so Space and Escape reach the page. -->
+      <div id="flowKeys" role="application" tabindex="-1"
+           aria-label="Exam keys. Press Space to talk, Escape to stop."
+           aria-describedby="flowStatus">
+        <p id="flowStatus">Not started.</p>
+      </div>
+      <p><strong>Last message:</strong> <span id="flowMessage"></span></p>
+      <!-- The ONLY live region for exam messages; empty at load so the screen reader registers it.
+           Assertive alert: every message answers something the student just did. -->
+      <div id="flowLive" role="alert" aria-live="assertive" aria-atomic="true"
+           style="position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap"></div>
+      <button id="srTest">Test screen reader announcement</button>
+      <label>Type instead of speaking <input id="flowType" size="40" placeholder="e.g. go back to question two" /></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Circuit (synthetic test data)</legend>
+      <label>Circuit <select id="circuit"></select></label>
+      <button id="resetFocus">Reset focus</button>
+      <div id="circuitFacts"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Flowchart explorer (synthetic; flowcharts are not in the API contract yet)</legend>
+      <p>Same exploration engine as circuits. Try: start the tour, next step, start at receive order,
+        what happens next, take the no branch, where did I come from, give me more detail, ابدأ الجولة.</p>
+      <label>Say or type <input id="flowchartAsk" size="40" placeholder="e.g. walk me through this diagram" /></label>
+      <button id="flowchartListen">Listen</button>
+    </fieldset>
+
+    <fieldset>
+      <legend>Speech</legend>
+      <label>Text <input id="text" size="40" value="Question 3. Find the current through resistor R2." /></label>
+      <button id="speak">Speak as typed</button>
+      <button id="readBack">Read back (answer check)</button>
+      <button id="stopSpeak">Stop speaking</button>
+    </fieldset>
+
+    <fieldset>
+      <legend>Listening</legend>
+      <button id="listenCmd">Listen for command</button>
+      <button id="listenDictate">Listen for dictation</button>
+      <button id="speakThenListen">Speak, then listen</button>
+      <button id="stopListen">Stop listening</button>
+    </fieldset>
+
+    <fieldset>
+      <legend>Typed command (keyboard fallback)</legend>
+      <label>Command <input id="typed" size="40" placeholder="e.g. explore node B" /></label>
+      <button id="parse">Parse</button>
+    </fieldset>
+
+    <h2>Log</h2>
+    <!-- Developer log: deliberately NOT a live region, so screen readers do not announce it. -->
+    <div id="log"></div>
+
+    <script type="module" src="./harness.ts"></script>
+  </body>
+</html>
