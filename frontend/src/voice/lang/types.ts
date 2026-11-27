@@ -54,8 +54,94 @@ export interface Responses {
   othersAtNode(node: string, excluded: string | null, components: Component[]): string;
 }
 
+// ---------- universal visual exploration (visual/engine.ts) ----------
+
+export type ExploreSimpleAction =
+  | 'tourStart' | 'tourNext' | 'tourPrev' | 'tourRepeat' | 'tourRestart' | 'tourStop'
+  | 'where' | 'whatHere' | 'whatNext' | 'elseHere' | 'stepBack' | 'cameFrom' | 'brief' | 'detailed';
+
+/** A reference to an element in a view (labels and categories as approved). */
+export interface ElementRef {
+  id: string;
+  label: string;
+  category: string;
+  /** First approved attribute value, if any ("2 ohms"). */
+  primary?: string;
+}
+
+/** One way out of a place: via a link (circuit component) or along an arrow, to another place. */
+export interface LinkView {
+  to: ElementRef;
+  via?: ElementRef;
+  /** Printed label on the relation ("yes"). */
+  label?: string;
+  directed: boolean;
+}
+
+/** Everything the templates may say about one element — approved facts only. */
+export interface ElementView {
+  element: ElementRef & { role: 'place' | 'link'; attributes: { name: string; value: string }[]; detail?: string; uncertain?: boolean };
+  docType: string;
+  /** For a place: where you can go from here. */
+  out: LinkView[];
+  /** For a place in a directed diagram: documented arrows arriving here. */
+  incoming: ElementRef[];
+  /** For a link: the places it joins. */
+  ends: ElementRef[];
+}
+
+export interface VisualResponses {
+  /** Localised category name ("resistor", "decision"); unknown categories are spoken as given. */
+  category(category: string, plural?: boolean): string;
+  describe(view: ElementView, level: 'brief' | 'detailed'): string;
+  /** "What is connected here?" — all ways out of a place. */
+  here(view: ElementView): string;
+  tourIntro(summary: string, count: number, docType: string): string;
+  tourPart(position: number, count: number, body: string): string;
+  tourEnd: string;
+  tourAtFirst: string;
+  tourNotActive: string;
+  tourStopped: string;
+  tourRestart(body: string): string;
+  emptyDiagram: string;
+  where(tour: { position: number; count: number; label: string } | null, place: string | null): string;
+  noPosition: string;
+  moved(body: string): string;
+  followed(link: LinkView, body: string): string;
+  /** Standing on a link is not possible: say what it joins and how to continue. */
+  atLink(link: ElementRef, ends: ElementRef[]): string;
+  chooseLink(place: ElementRef, options: LinkView[]): string;
+  noSuchLink(ref: string, place: ElementRef, options: LinkView[]): string;
+  deadEnd(place: ElementRef): string;
+  elseHere(place: ElementRef, options: LinkView[]): string;
+  nothingElse(place: ElementRef): string;
+  stepBack(body: string): string;
+  nothingToGoBack: string;
+  cameFrom(previous: ElementRef | null, via: ElementRef | null, incoming: ElementRef[]): string;
+  notFound(ref: string, examples: ElementRef[]): string;
+  ambiguous(ref: string, matches: ElementRef[]): string;
+  briefOn: string;
+  detailedOn: string;
+}
+
+export interface VisualPack {
+  /** Whole utterances (fillers ignored) that map to one action. */
+  commands: Record<ExploreSimpleAction, string[]>;
+  /** Leading phrases followed by an element name: "start at node A". */
+  goTo: string[];
+  /** Leading phrases followed by a link, branch or place: "follow R1", "take the yes branch". */
+  follow: string[];
+  /** Words ignored inside a name ("the", "branch"). */
+  refFillers: string[];
+  /** Category names: key -> [singular, plural]. */
+  categories: Record<string, [string, string]>;
+  responses: VisualResponses;
+}
+
 /** Vocabulary and phrasing for one language. Phrases are written naturally and normalised at load time. */
 export interface LanguagePack {
+  /** Universal visual exploration phrases and replies. */
+  visual: VisualPack;
   // --- command parser ---
   commands: Record<SimpleCommandType, string[]>;
   /** Tokens ignored when matching a command phrase ("please", "the"). */

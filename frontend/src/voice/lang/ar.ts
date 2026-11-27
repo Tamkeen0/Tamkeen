@@ -1,5 +1,6 @@
 import type { Component } from '../../../../contracts/types';
 import type { LanguagePack } from './types';
+import { visualAr } from './visual-ar';
 
 // Modern Standard Arabic with a few common colloquial forms. Phrases are
 // normalised at load time (hamza/taa marbuta/diacritics folded), so they can
@@ -40,6 +41,7 @@ function sentence(text: string): string {
 }
 
 export const ar: LanguagePack = {
+  visual: visualAr,
   commands: {
     next: ['التالي', 'السؤال التالي', 'بعده', 'اللي بعده'],
     previous: ['السابق', 'السؤال السابق', 'رجوع', 'ارجع', 'قبله', 'اللي قبله'],

@@ -308,8 +308,11 @@ export class ReferenceController {
         return this.say(questionSpeech(q, this.index, this.total, { firstVisit: false, status: this.stateOf(this.index) }));
       case 'readOptions':
         return this.say(q.type === 'mcq' ? prompts.options(q) : prompts.noOptions);
-      case 'progress':
-        return this.say(prompts.progress(this.index, this.total, this.answeredFlags()));
+      case 'progress': {
+        // "Where am I?" while exploring a diagram also gives the tour/exploration position.
+        const exam = prompts.progress(this.index, this.total, this.answeredFlags());
+        return this.say(this.explorer.exploring ? `${exam} ${this.explorer.where()}` : exam);
+      }
       case 'answerStatus':
         return this.say(prompts.answerStatus(this.index, this.stateOf(this.index), this.mode === 'submitted'));
       case 'readAnswer': {

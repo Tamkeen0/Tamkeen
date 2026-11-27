@@ -9,6 +9,7 @@ import type { VoiceCommand } from '../../../contracts/types';
 import { ALL_PACKS } from './lang';
 import type { SimpleCommandType } from './lang/types';
 import { normalizeText, tokenize } from './normalize';
+import { parseExploreAction } from './visual/commands';
 
 const MAX_EXPLORE_TOKENS = 30;
 const COMPONENT_ID_PATTERN = /(^|\s)[a-z]{1,3} ?\d{1,3}(\s|$)/;
@@ -86,6 +87,10 @@ export function parseCommand(text: string): VoiceCommand {
   if (tokens.some((t) => NEGATIONS.has(t)) && tokens.some((t) => COMMAND_KEYWORDS.has(t))) {
     return { type: 'unknown' };
   }
+
+  // Guided tour and relationship exploration ("start the tour", "next part", "follow R1"):
+  // route to explore so describeDiagram() handles them (it keeps the tour state).
+  if (parseExploreAction(text)) return { type: 'explore', query: tokens.join(' ') };
 
   // "Solve this circuit", "give me a hint": the contract has no "unsupported" command,
   // so route to explore; describeDiagram() answers with the fixed refusal (even with no diagram).

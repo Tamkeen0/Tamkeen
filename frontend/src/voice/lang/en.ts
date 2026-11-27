@@ -1,5 +1,6 @@
 import type { Component } from '../../../../contracts/types';
 import type { LanguagePack } from './types';
+import { visualEn } from './visual-en';
 
 function join(items: string[]): string {
   if (items.length <= 1) return items.join('');
@@ -24,6 +25,7 @@ function sentence(text: string): string {
 }
 
 export const en: LanguagePack = {
+  visual: visualEn,
   commands: {
     next: ['next', 'next question', 'forward', 'skip'],
     previous: ['previous', 'previous question', 'back', 'prior question'],

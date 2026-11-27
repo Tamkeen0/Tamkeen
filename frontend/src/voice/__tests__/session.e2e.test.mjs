@@ -352,3 +352,27 @@ test('fairness: questions read verbatim from approved text; no hints on any ques
     assert.equal(await press('what is the answer'), en.responses.refusal);
   }
 });
+
+// ---------- universal visual exploration inside the exam ----------
+
+test('diagram tour inside the exam: tour moves, exam navigation unchanged, "where am I" gives both', async () => {
+  setup();
+  await begin();
+  await press('question 3');
+  assert.match(await press('walk me through this circuit'), /The tour has 3 parts\..*Part 1 of 3\. V1/);
+  assert.match(await press('next part'), /^Part 2 of 3\. R1, resistor, 2 ohms\. Connects node A and node B\.$/);
+  assert.match(await press('R2'), /^R2 is a resistor with value 4 ohms/, 'a question does not reset the tour');
+  assert.match(await press('repeat this part'), /^Part 2 of 3\. R1/);
+  assert.match(await press('start at node B'), /^Node B\. Connected to R1 and R2\.$/);
+  assert.match(await press('follow R2'), /^Following R2\. Node C\./);
+  assert.equal(
+    await press('where am I'),
+    'You are on question 3 of 3. This is the last question. You have answered 0 of 3. Unanswered: questions 1, 2 and 3. In the tour: part 2 of 3, R1. You are at C.',
+  );
+  assert.match(await press('give me more detail'), /^Detailed descriptions\. Node C\. V1 \(voltage source/);
+  assert.equal(await press('follow the current through R1'), en.responses.refusal);
+  // bare "previous" is still question navigation; a new question starts a fresh explorer
+  assert.match(await press('previous'), /^Question 2 of 3\./);
+  await press('next');
+  assert.equal(await press('next part'), en.visual.responses.tourNotActive, 'tour state does not carry across questions');
+});

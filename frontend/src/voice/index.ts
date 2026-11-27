@@ -23,6 +23,17 @@ export type { NavigationCommand } from './navigation';
 export { describeDiagram, createDiagramExplorer } from './diagram';
 export type { DiagramExplorer, DiagramFocus } from './diagram';
 export { readBackText } from './readback';
+
+// Universal visual exploration (guided tours, relationship navigation, detail levels).
+export { VisualExplorer } from './visual/engine';
+export type { DetailLevel, ExplorerSnapshot } from './visual/engine';
+export { parseExploreAction } from './visual/commands';
+export type { ExploreAction } from './visual/commands';
+export { validateDocument, VisualDataError } from './visual/model';
+export type { VisualDocument, VisualElement, VisualRelation, VisualAttribute, VisualType } from './visual/model';
+export { circuitToVisual } from './visual/adapters/circuit';
+export { flowchartToVisual } from './visual/adapters/flowchart';
+export type { FlowchartData, FlowchartStep, FlowchartArrow, FlowchartStepKind } from './visual/adapters/flowchart';
 export { questionSpeech, prompts, recoveryPrompt, needsKeyboardFallback, editResultPrompt, COMMAND_SUMMARY } from './prompts';
 export type { AnswerState, QuestionSpeechOptions } from './prompts';
 export { parseEditCommand, applyEdit, AnswerDraft } from './editing';

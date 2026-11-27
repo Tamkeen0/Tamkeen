@@ -71,6 +71,14 @@
     </fieldset>
 
     <fieldset>
+      <legend>Flowchart explorer (synthetic; flowcharts are not in the API contract yet)</legend>
+      <p>Same exploration engine as circuits. Try: start the tour, next step, start at receive order,
+        what happens next, take the no branch, where did I come from, give me more detail, ابدأ الجولة.</p>
+      <label>Say or type <input id="flowchartAsk" size="40" placeholder="e.g. walk me through this diagram" /></label>
+      <button id="flowchartListen">Listen</button>
+    </fieldset>
+
+    <fieldset>
       <legend>Speech</legend>
       <label>Text <input id="text" size="40" value="Question 3. Find the current through resistor R2." /></label>
       <button id="speak">Speak as typed</button>

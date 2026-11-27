@@ -22,6 +22,9 @@ import type { VoiceLanguage } from './language';
 import { ALL_PACKS, PACKS } from './lang';
 import type { Example, LanguagePack, Responses } from './lang/types';
 import { hasArabic, normalizeAndStem, normalizeText, stemToken } from './normalize';
+import { circuitToVisual } from './visual/adapters/circuit';
+import { parseExploreAction } from './visual/commands';
+import { VisualExplorer } from './visual/engine';
 
 type Vocab = {
   numbers: Map<string, string>;
@@ -628,23 +631,52 @@ function resolve(diagram: Diagram, raw: string, language: VoiceLanguage | undefi
   return keep(r.unknown(example(index)));
 }
 
+/** Refusal check shared by lookups and exploration names ("follow the current through R1"). */
+function refuses(diagram: Diagram | null, raw: string): boolean {
+  const stemmed = normalizeAndStem(raw);
+  if (!isDiagram(diagram)) return isRefusal(stemmed);
+  const index = buildIndex(diagram);
+  const exempt = valueUnitTokens(raw, index);
+  return isRefusal(withoutKindNames(stemmed, index).filter((t) => !exempt.has(t)));
+}
+
+function replyLanguage(raw: string, language?: VoiceLanguage): VoiceLanguage {
+  return hasArabic(raw) ? 'ar' : (language ?? getLanguage());
+}
+
 /**
- * Answer a factual question about an approved diagram (stateless).
+ * Answer a factual question about an approved diagram.
  * Reply language: Arabic if the query contains Arabic script, otherwise the
  * explicit `language` argument, otherwise the active voice language.
  * Solution/hint requests are refused even when `diagram` is null.
+ *
+ * Lookups are stateless (contract). Guided-tour and relationship-exploration
+ * commands ("start the tour", "next part", "follow R1") keep a small per-diagram
+ * session so they also work through this function (one session per diagram object).
  */
 export function describeDiagram(diagram: Diagram | null, query: string, language?: VoiceLanguage): string {
-  return resolve(diagram as Diagram, String(query ?? ''), language, { focus: null, lastComponent: null }).text;
+  const raw = String(query ?? '');
+  if (isDiagram(diagram) && parseExploreAction(raw)) {
+    let session = sessions.get(diagram);
+    if (!session) sessions.set(diagram, (session = createDiagramExplorer(diagram, language)));
+    return session.ask(raw);
+  }
+  return resolve(diagram as Diagram, raw, language, { focus: null, lastComponent: null }).text;
 }
 
+const sessions = new WeakMap<Diagram, DiagramExplorer>();
+
 export interface DiagramExplorer {
-  /** Same answers as describeDiagram, plus "it", "there", "that one", "the other resistor". */
+  /** Same answers as describeDiagram, plus "it", "there", "that one", "the other resistor", tours and "follow R1". */
   ask(query: string): string;
-  /** Forget the focus and the last component discussed. */
+  /** Forget the focus, the last component, the tour, the exploration position and the detail level. */
   reset(): void;
   /** Component or node the last answer was about, if exactly one. */
   readonly focus: DiagramFocus | null;
+  /** True while a guided tour runs or an exploration position is set. */
+  readonly exploring: boolean;
+  /** "Where am I?" for the diagram: tour part and/or exploration position. */
+  where(language?: VoiceLanguage): string;
 }
 
 /**
@@ -653,9 +685,41 @@ export interface DiagramExplorer {
  */
 export function createDiagramExplorer(diagram: Diagram | null, language?: VoiceLanguage): DiagramExplorer {
   const ctx: Context = { focus: null, lastComponent: null };
+  // Inconsistent data disables exploration only; ordinary lookups keep working.
+  const makeVisual = () => {
+    if (!isDiagram(diagram)) return null;
+    try {
+      return new VisualExplorer(circuitToVisual(diagram));
+    } catch {
+      return null;
+    }
+  };
+  let visual = makeVisual();
+
+  /** Keep "it"/"its value" pointing at what exploration just described. */
+  const syncFocus = () => {
+    const id = visual?.lastElement;
+    if (!id) return;
+    if (id.startsWith('node:')) ctx.focus = { type: 'node', id: id.slice('node:'.length) };
+    else {
+      ctx.focus = { type: 'component', id };
+      ctx.lastComponent = id;
+    }
+  };
+
   return {
     ask(query: string): string {
-      const answer = resolve(diagram as Diagram, String(query ?? ''), language, ctx);
+      const raw = String(query ?? '');
+      const action = visual ? parseExploreAction(raw) : null;
+      if (visual && action) {
+        // Names inside exploration commands get the same refusal check as lookups.
+        const name = action.type === 'goTo' || action.type === 'follow' ? action.ref ?? '' : '';
+        if (name && refuses(diagram, name)) return (PACKS[replyLanguage(raw, language)] ?? PACKS.en).responses.refusal;
+        const text = visual.act(action, language, raw);
+        syncFocus();
+        return text;
+      }
+      const answer = resolve(diagram as Diagram, raw, language, ctx);
       ctx.focus = answer.focus;
       if (answer.focus?.type === 'component') ctx.lastComponent = answer.focus.id;
       return answer.text;
@@ -663,9 +727,16 @@ export function createDiagramExplorer(diagram: Diagram | null, language?: VoiceL
     reset(): void {
       ctx.focus = null;
       ctx.lastComponent = null;
+      visual = makeVisual();
     },
     get focus(): DiagramFocus | null {
       return ctx.focus;
+    },
+    get exploring(): boolean {
+      return visual?.isActive ?? false;
+    },
+    where(lang?: VoiceLanguage): string {
+      return visual ? visual.act({ type: 'where' }, lang ?? language) : (PACKS[lang ?? language ?? getLanguage()] ?? PACKS.en).responses.noDiagram;
     },
   };
 }

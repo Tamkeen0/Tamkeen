@@ -1,7 +1,8 @@
 // Developer-only manual test page for the voice module (see ../README.md).
 // Circuits are synthetic (see ./circuits.ts); the default is fixture question q3.
 import type { VoiceCommand } from '../../../../contracts/types';
-import { TEST_CIRCUITS } from './circuits';
+import { TEST_CIRCUITS, TEST_FLOWCHART } from './circuits';
+import { flowchartToVisual, parseExploreAction, VisualExplorer } from '../index';
 import type { TestCircuit } from './circuits';
 import { buildDemoExam } from './demo-exam';
 import { createMemorySession, ReferenceController } from './reference-controller';
@@ -174,6 +175,31 @@ $<HTMLSelectElement>('flowOutput').addEventListener('change', (e) => {
   if (flow) flow.output = value;
   if (value === 'screenReader') stopSpeaking();
   write(`exam feedback: ${value}`);
+});
+
+// ---------- flowchart explorer (second adapter; dev only until the contract has a flowchart type) ----------
+
+const flowchartExplorer = new VisualExplorer(flowchartToVisual(TEST_FLOWCHART));
+
+async function askFlowchart(text: string): Promise<void> {
+  const action = parseExploreAction(text);
+  const reply = action ? flowchartExplorer.act(action, undefined, text) : 'Try: start the tour, next step, start at receive order, or what happens next.';
+  write(`flowchart: "${text}" -> ${reply}`);
+  await speak(reply).catch((e) => write(describeError(e)));
+}
+
+$<HTMLInputElement>('flowchartAsk').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  const input = e.target as HTMLInputElement;
+  const text = input.value.trim();
+  input.value = '';
+  if (text) void askFlowchart(text);
+});
+$('flowchartListen').addEventListener('click', () => {
+  listenOnce().then(
+    (text) => askFlowchart(text),
+    (e) => write(describeError(e)),
+  );
 });
 
 const circuitSelect = $<HTMLSelectElement>('circuit');

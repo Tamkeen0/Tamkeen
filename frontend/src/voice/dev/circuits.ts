@@ -1,5 +1,27 @@
-// Synthetic circuits for the developer test page only. No real exam data.
+// Synthetic circuits and flowcharts for the developer test page only. No real exam data.
 import type { Diagram } from '../../../../contracts/types';
+import type { FlowchartData } from '../visual/adapters/flowchart';
+
+/** Synthetic flowchart (flowcharts are not in the API contract yet; dev page and tests only). */
+export const TEST_FLOWCHART: FlowchartData = {
+  description: 'A flowchart for handling an online order.',
+  steps: [
+    { id: 's1', label: 'Start', kind: 'start' },
+    { id: 's2', label: 'Receive order', kind: 'process' },
+    { id: 's3', label: 'Item in stock?', kind: 'decision' },
+    { id: 's4', label: 'Ship order', kind: 'process' },
+    { id: 's5', label: 'Notify customer of delay', kind: 'output', detail: 'An email is sent to the customer.' },
+    { id: 's6', label: 'End', kind: 'end' },
+  ],
+  arrows: [
+    { from: 's1', to: 's2' },
+    { from: 's2', to: 's3' },
+    { from: 's3', to: 's4', label: 'yes' },
+    { from: 's3', to: 's5', label: 'no' },
+    { from: 's4', to: 's6' },
+    { from: 's5', to: 's6' },
+  ],
+};
 
 export type TestCircuit = { id: string; label: string; diagram: Diagram };
 

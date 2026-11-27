@@ -99,6 +99,54 @@ Rules (tested):
 - No edits while a submission awaits confirmation. "Read my answer" with a draft reads the draft.
 - English only (demo).
 
+## Universal visual exploration (`visual/`)
+
+One exploration engine for every diagram type, with a domain adapter per type.
+
+```
+voice layer      parser.ts → explore;  visual/commands.ts  parseExploreAction (EN + AR phrases from lang/visual-*.ts)
+engine           visual/engine.ts      VisualExplorer: tour position · exploration position + history · detail level
+adapters         visual/adapters/circuit.ts   (contract Diagram)   · visual/adapters/flowchart.ts (FlowchartData)
+approved data    visual/model.ts       VisualDocument { type, summary, elements, relations, readingOrder } + validateDocument
+```
+
+- **Elements** are *places* (circuit node, flowchart step) or *links* (circuit component). **Relations** join places,
+  directed (flowchart arrows, with the printed label) or undirected via a link (component terminals).
+- **Reading order** is decided by the adapter: circuit = approved component order; flowchart = from Start along arrows
+  in listed order (depth first), unreachable steps last.
+- **Following**: circuit — a component from a node to its other terminal; flowchart — an arrow to the next step; at a
+  decision, branches are listed by printed label and "follow yes" picks one. Nothing is followed that is not in the data.
+- **States are independent**: questions about an element never reset the tour; tour moves never change the exploration
+  position; switching brief/detailed keeps both.
+- **Integrity**: only approved labels/values are spoken (verbatim); uncertain elements are always announced; names in
+  "start at …"/"follow …" get the same refusal check as lookups ("follow the current" → refusal); inconsistent data is
+  rejected (`VisualDataError`) and only disables exploration, never ordinary lookups.
+
+| Say (English / العربية) | Action |
+|---|---|
+| "Walk me through this diagram", "start the tour" / "ابدأ الجولة" | tour: overview + part 1 |
+| "next part" / "الجزء التالي", "previous part" / "الجزء السابق", "repeat this part" / "أعد هذا الجزء" | tour moves |
+| "go back to the beginning" / "ارجع إلى البداية", "stop the tour" / "أوقف الجولة" | restart / stop |
+| "where am I" / "أين أنا" | tour part and exploration position (exam progress too, in the controller) |
+| "start at node A" / "ابدأ من العقدة A", "what is connected here" / "ما المتصل هنا" | set position / list connections |
+| "follow R1", "take the no branch" / "اتبع R1", "what happens next" / "ماذا يحدث بعد ذلك" | move along a documented relation |
+| "what else is here" / "ماذا يوجد أيضا هنا", "step back" / "ارجع خطوة", "where did I come from" / "من أين أتيت" | alternatives, history |
+| "describe briefly", "back to brief mode" / "باختصار"; "give me more detail" / "مزيد من التفاصيل" | detail level (brief is default) |
+
+Bare "next", "go back", "repeat" keep their exam meaning (next/previous question, re-read). Exploration needs the
+explicit words ("next part", "step back").
+
+**Integration**: no UI change needed. `parseCommand` routes these phrases to `explore`, and the contract's
+`describeDiagram(diagram, query)` keeps one exploration session per diagram object, so the merged UI's existing call
+gets tours and following. `createDiagramExplorer` offers the same plus `exploring` and `where()`.
+UI note: the merged UI answers explore on non-circuit questions with its own text, so "solve this" is not refused there;
+calling `describeDiagram(null, query)` would give the refusal.
+
+**Supported diagram types**: **circuit** (end to end through the contract) and **flowchart** (adapter + tests +
+dev page only — it cannot reach students until the contract carries flowchart data, see below). Other types (network,
+UML, graphs, geometry, anatomy, physics, maps) are **not supported yet**: each needs an adapter, its own tests and a
+contract/data source.
+
 ## Contract requests (for the lead)
 
 File `contracts/types.ts`, type `VoiceCommand`. Proposed additive members, so these can move
@@ -112,6 +160,15 @@ from scoped adapters into `parseCommand` (affects voice + frontend):
 // plus the other parseNavigation intents (next/previous/repeatLast/repeatQuestion/readOptions/
 // answerStatus/time/help/redictate/saveAnswer/selectOption) if the team wants them in the contract
 ```
+
+**Visual content beyond circuits (blocked for students):** `Question.diagram` is circuit-only. Proposed additive,
+optional field on `Question` in `contracts/types.ts` and `exam.schema.json` (affects lead, document engine, frontend, voice):
+
+```ts
+visual?: { type: 'flowchart'; flowchart: FlowchartData } | null   // FlowchartData as in visual/adapters/flowchart.ts
+```
+
+The document engine would draft it and the professor approve it like circuits; the voice module already explores it.
 
 **Remaining time (blocked):** the contract has no exam timing. Proposed: server-provided
 `ends_at` (ISO time) on `Session` (or `duration_minutes` on `Exam` + `started_at` on `Session`),
