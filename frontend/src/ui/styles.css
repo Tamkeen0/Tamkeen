@@ -395,3 +395,5 @@ progress { display: block; width: 100%; height: .68rem; accent-color: var(--teal
   .feedback-status, .feedback-error, .review-warning { border-inline-start-color: CanvasText; }
   .icon-tile, .tag, .voice-state { border: 1px solid CanvasText; }
 }
+
+.voice-output { max-width: 21rem; margin: .75rem 0; }
