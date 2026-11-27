@@ -18,6 +18,8 @@ export type VoiceErrorCode =
 export class VoiceError extends Error {
   readonly code: VoiceErrorCode;
   readonly detail: string | undefined;
+  /** Words recognised before listening failed or was stopped; keep them as a draft. */
+  partialTranscript?: string;
 
   constructor(code: VoiceErrorCode, message: string, detail?: string) {
     super(message);

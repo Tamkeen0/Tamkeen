@@ -9,6 +9,8 @@
  *   { error: 'no-speech' }   recogniser error code (not-allowed, network, …)
  *   { silence: true }        recogniser ends with no result
  *   { hang: true }           nothing happens (exercises timeouts / stopListening)
+ *   { parts: ['a', 'b'], gapMs, error?, hang? }
+ *                            dictation in parts with pauses; then silence, an error, or (hang) nothing
  */
 export function createFakeSpeech({ synthesis = true, recognition = true } = {}) {
   const state = {
@@ -16,6 +18,7 @@ export function createFakeSpeech({ synthesis = true, recognition = true } = {}) 
     micOpenedWhileSpeaking: 0,
     listens: 0,
     speaking: 0,
+    wordsHeard: 0, // dictation parts delivered so far
     script: [],
   };
 
@@ -41,6 +44,23 @@ export function createFakeSpeech({ synthesis = true, recognition = true } = {}) 
       if (state.speaking > 0) state.micOpenedWhileSpeaking++;
       const item = state.script.shift();
       if (!item) throw new Error('fake speech script exhausted');
+      if (item.parts) {
+        // Dictation spoken in parts with short pauses: cumulative results, no explicit end.
+        const finals = [];
+        const emit = (i) => {
+          if (i >= item.parts.length) {
+            if (item.error) this.onerror?.({ error: item.error });
+            return; // otherwise silence: the listener's end-of-speech timer finishes it
+          }
+          this.onspeechstart?.();
+          state.wordsHeard++;
+          finals.push(item.parts[i]);
+          this.onresult?.({ results: finals.map((t) => Object.assign([{ transcript: t }], { isFinal: true })) });
+          setTimeout(() => emit(i + 1), item.gapMs ?? 5);
+        };
+        setTimeout(() => emit(0), 0);
+        return;
+      }
       setTimeout(() => {
         if (item.say !== undefined) {
           this.onresult?.({ results: [Object.assign([{ transcript: item.say }], { isFinal: true })] });

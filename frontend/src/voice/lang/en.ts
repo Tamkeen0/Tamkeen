@@ -35,7 +35,7 @@ export const en: LanguagePack = {
     ],
     dictate: ['dictate', 'dictation', 'start dictation', 'answer', 'start answer', 'record answer', 'write answer', 'answer question'],
     confirm: ['confirm', 'confirm answer', 'save', 'save answer', 'yes confirm'],
-    cancel: ['cancel', 'cancel that', 'stop', 'no', 'never mind', 'abort'],
+    cancel: ['cancel', 'cancel that', 'stop', 'no', 'never mind', 'abort', 'discard', 'discard it', 'discard draft', 'discard the draft', 'discard my draft'],
     submit: ['submit', 'submit exam', 'submit test', 'submit my exam', 'submit answers', 'submit my answers', 'hand in', 'hand in exam'],
   },
   fillers: ['please', 'ok', 'okay', 'um', 'uh', 'er', 'hmm', 'so', 'now', 'the', 'go', 'to', 'lets', 'can', 'you', 'could', 'just', 'then'],

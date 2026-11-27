@@ -19,7 +19,7 @@ Contract functions (contracts/API.md):
 | `parseCommand(text): VoiceCommand` | Command mode only. See table below. Anything ambiguous → `{type:'unknown'}`. |
 | `describeDiagram(diagram, query, lang?): string` | Factual lookup over approved data, or a fixed refusal. |
 
-Additive helpers (not in the contract; proposed to the lead): `parseNavigation(text)`, `createDiagramExplorer(diagram)`, `readBackText(answer)`, `questionSpeech`/`prompts`/`recoveryPrompt`/`needsKeyboardFallback`, `VoiceError`,
+Additive helpers (not in the contract; proposed to the lead): `listenOnce({ mode: 'dictation' })` and `VoiceError.partialTranscript`, `parseEditCommand`/`applyEdit`/`AnswerDraft`/`editResultPrompt`, `parseNavigation(text)`/`matchOption`, `createDiagramExplorer(diagram)`, `readBackText(answer)`, `questionSpeech`/`prompts`/`recoveryPrompt`/`needsKeyboardFallback`, `VoiceError`,
 `isVoiceError`, `isSpeechSupported()`, `isRecognitionSupported()`,
 `isSpeaking()`, `isListening()`, `setLanguage('en'|'ar', bcp47Tag?)`,
 `getLanguage()`, `languageTag()`, `SUPPORTED_LANGUAGES`,
@@ -46,24 +46,58 @@ Two commands at once ("next submit") → `unknown`.
 languages regardless of `setLanguage`. Repeat also accepts "read the current question again",
 "read this question", "what is the question".
 
-### Voice-guided navigation (`parseNavigation`, scoped adapter)
+### Voice-guided navigation and answer actions (`parseNavigation`, scoped adapter)
 
-| Say | Result | Spoken by the UI (`prompts.*`) |
-|---|---|---|
-| "Go to the next question." | `parseCommand` → `next` | `questionSpeech(…)` |
-| "Go back to question two.", "question 3", "the second question", "the final question" | `{type:'goto', question:2}` (1-based; `-1` = final) | `questionSpeech(…)`, or `noSuchQuestion(n, total)` |
-| "Read the current question again." | `parseCommand` → `repeat` | `questionSpeech(…)` |
-| "How many questions are remaining?", "where am I", "how many have I answered" | `{type:'progress'}` | `progress(index, total, answeredFlags)` → position, how many follow, which are unanswered |
-| "Read my previous answer.", "what was my answer to question 2" | `{type:'readAnswer', question?}` (omitted = current question) | `savedAnswer(index, literal)` (read back with `readBackText`) |
+Natural phrasing is accepted **only for harmless actions**; anything that commits or deletes stays strict.
 
-Call `parseNavigation(text)` **first** in command mode, then `parseCommand(text)`. Never in
+| Say (examples) | Result |
+|---|---|
+| "Move to the next question.", "next one", "move on", "skip this question" | `next` |
+| "go to the previous one", "back one" | `previous` |
+| "Go to question four.", "question 3", "the second question", "the final question" | `goto` (1-based; `-1` = final) |
+| "Repeat that.", "say that again", "what did you say", "pardon" | `repeatLast` — the last message, e.g. a diagram answer |
+| "Read the question again.", "what was the question" | `repeatQuestion` |
+| "read the options", "what are the choices" | `readOptions` |
+| "How many questions are remaining?", "where am I" | `progress` |
+| "Read my answer.", "what was my answer to question 2" | `readAnswer` (the unsaved draft if there is one, else the saved answer) |
+| "is my answer saved", "have I answered this question" | `answerStatus` (saved / unsaved draft / none / submitted) |
+| "how much time is left", "how long do I have" | `time` — answered only from real exam data (`prompts.timeUnavailable` until the API provides it) |
+| "help", "what can I say" | `help` |
+| "try again", "dictate again", "redo" | `redictate` (old draft stays undoable) |
+| "save it", "yes", "keep it" | `saveAnswer` — UI applies it **only** when a draft awaits saving; never submits |
+| "option C", "option see", "I choose B", "select option 4", "the answer is 17" | `selectOption` → `matchOption(question, choice)`; draft = the exact option text |
+
+Call `parseNavigation(text)` **first** in command mode, then `parseEditCommand`, then `parseCommand`. Never in
 dictation mode. Rules the tests enforce:
 - "Read my answer" needs "my"/"I", so "what is the answer" stays a refused solution request, and
   "is my answer correct" / "check my answer" are never read back (refused instead).
 - Negated ("don't go to question 2") → `null`. "the last question" is ambiguous (previous vs final) → `null`.
 - Chrome's "question to/for" → question 2/4 (only right after "question").
-- While an answer or submission awaits confirmation, navigation is held: `prompts.navigationBlocked` + the reminder.
-- "My previous answer" = the answer already saved for the **current** question.
+- Submit, confirm-submission, clear and discard are never matched loosely; "yes" never submits.
+
+## Answer editing (`editing.ts`)
+
+Fix a dictated answer by voice without re-dictating it. `parseEditCommand(text)` → `EditCommand | null`,
+`applyEdit(answer, cmd)` → `EditResult`, `AnswerDraft` (edits with unlimited undo), and
+`editResultPrompt(result)` / `prompts.editHelp` for the spoken reply.
+
+| Say | Answer "the current is 3 amps" becomes |
+|---|---|
+| "add through R2" | the current is 3 amps through R2 |
+| "replace three with four" (spoken "three" matches written "3") | the current is four amps |
+| "replace every x with y" | all matches changed |
+| "delete amps" | the current is 3 |
+| "delete the last two words" | the current is |
+| "insert about before 3" | the current is about 3 amps |
+| "undo" / "clear my answer" / "edit" (help) | previous version / empty / list of edit commands |
+
+Rules (tested):
+- Only in command or confirm mode — **never** parsed from dictation (dictating "delete the last word" saves those words).
+- Inserted text is kept exactly as spoken; matching is case-insensitive and treats spoken words and symbols alike (three ↔ 3, plus ↔ +), whole words only.
+- Not found → "Nothing was changed". Found more than once → nothing changed unless "every" is said.
+- Every edit is read back and **needs save**; editing a saved answer from command mode creates a draft (discard keeps the saved one). "clear" empties only the draft, is undoable, and an empty draft is never saved.
+- No edits while a submission awaits confirmation. "Read my answer" with a draft reads the draft.
+- English only (demo).
 
 ## Contract requests (for the lead)
 
@@ -75,7 +109,14 @@ from scoped adapters into `parseCommand` (affects voice + frontend):
 | { type: 'progress' }                      // parseNavigation today
 | { type: 'readAnswer'; question?: number } // parseNavigation today
 | { type: 'unsupported' }                   // solution requests; routed to explore + refusal today
+// plus the other parseNavigation intents (next/previous/repeatLast/repeatQuestion/readOptions/
+// answerStatus/time/help/redictate/saveAnswer/selectOption) if the team wants them in the contract
 ```
+
+**Remaining time (blocked):** the contract has no exam timing. Proposed: server-provided
+`ends_at` (ISO time) on `Session` (or `duration_minutes` on `Exam` + `started_at` on `Session`),
+so "how much time is left" and quiet warnings (e.g. at 10 and 1 minutes) use authoritative data.
+Until then the voice layer says the time is not available — it never estimates.
 
 Plus the additive exports listed under "Public API". Until approved, the adapters keep the
 contract unchanged.
@@ -217,8 +258,8 @@ Requirements on the UI:
 
 ## Spoken prompts (`prompts.ts`)
 
-`questionSpeech(question, index, total)` reads the number, the approved `accessible_text`,
-MCQ options, a diagram hint and how to answer. `prompts.*` holds read-back/confirm, saved,
+`questionSpeech(question, index, total, { firstVisit, status })` reads the number, the approved
+`accessible_text`, MCQ options, a diagram note, the answer status, and (first visit only) how to answer. `prompts.*` holds read-back/confirm, saved,
 cancelled, not-understood (with the command list), boundaries, submit-confirm (with the
 answered count), submitted and keyboard-mode wording. `recoveryPrompt(error)` turns any
 `VoiceError` into a spoken next step; `needsKeyboardFallback(error)` says when to stop
@@ -230,14 +271,19 @@ retrying the microphone. English only (demo). Every prompt ends with what the st
 fake microphone/speech and `dev/reference-controller.ts` standing in for the UI
 (dev/test only, not product code; the Chrome test page and `dev/try-session.mjs` run the same controller). The UI should meet the same rules:
 
-1. Command mode → `parseCommand`; dictation mode → literal text, **never** parsed (dictating "submit" saves the answer "submit").
-2. Read back with `prompts.readBack(literal)`; save only on `confirm`. "next", "yes", silence → reminder, nothing saved; `cancel` keeps the old answer; `answer` re-dictates.
-3. `submit` → `prompts.submitConfirm(answered, total)`; only `confirm` submits. `cancel`, "yes", silence, "don't submit" keep the exam active.
-4. `explore` → `explorer.ask(query)` on **every** question (a new explorer per question), so "Solve this circuit" is refused even with no diagram.
-5. Every turn gives spoken **and** `aria-live` feedback; if TTS is unavailable the live region still gets every message.
-6. On `VoiceError`, speak `recoveryPrompt(err)` (plus the current mode's reminder). On `needsKeyboardFallback(err)` or no recognition support, switch to keyboard and say so; the whole exam can be finished by keyboard.
-7. Escape → `stopListening()` + `stopSpeaking()`, and backs out of dictation/confirmation with feedback.
-8. The microphone is never open while TTS speaks (asserted after every test; a mutation that removes the wait is caught).
+1. Read each question on arrival with `questionSpeech(q, i, total, { firstVisit, status })`: instructions only on the first visit; on return say whether a saved answer or unsaved draft exists.
+2. Command mode → `parseNavigation`, then `parseEditCommand`, then `parseCommand`; dictation → literal text, **never** parsed (dictating "submit" saves the answer "submit").
+3. Dictation: `listenOnce({ mode: 'dictation' })` keeps listening across pauses; after "answer" by voice, open the mic right away (no extra key press). The no-speech timeout never cuts off someone who is speaking.
+4. **Never lose dictated words:** on any `VoiceError` (incl. Escape/`stopListening`), use `err.partialTranscript` as the draft. Keep one draft per question until it is saved or explicitly discarded ("discard"/"cancel"; undoable). Escape and navigation keep drafts ("Your unsaved draft for question 1 is kept."); "no"/"stop" never delete a draft.
+5. Save only on explicit intent while a draft exists: "save", "save it", "yes", "confirm". Read back with `prompts.readBack(literal)` / `prompts.optionChosen(option)`.
+6. `submit` → `prompts.submitConfirm(answered, total, unsavedDraftNumbers)`; only "confirm" submits. "yes", "cancel", silence and "don't submit" keep the exam active. Unsaved drafts are named and not submitted.
+7. `explore` → `explorer.ask(query)` on **every** question (a new explorer per question), so "Solve this circuit" is refused even with no diagram.
+8. Output setting: **app voice** (TTS; do not also fill the aria-live region, or NVDA users hear everything twice), **screen reader** (aria-live only; no app TTS), or both. If app TTS fails, put the message in the live region so nothing is silent.
+9. On `VoiceError`, speak `recoveryPrompt(err)` (plus the current reminder). On `needsKeyboardFallback(err)` or no recognition support, switch to keyboard and say so; the whole exam can be finished by keyboard.
+10. Remaining time only from authoritative data (`timeRemainingMs`); otherwise `prompts.timeUnavailable`.
+11. The microphone is never open while TTS speaks (asserted after every test; mutation-checked). In screen-reader mode the app cannot know when NVDA is speaking, so use push-to-talk only.
+
+Mutation checks (each makes a test fail): words heard before Escape are dropped; "yes" submits; voice mode also announces; the mic opens during TTS; an edit saves without confirmation.
 
 Not covered here (needs the real UI): focus order, no keyboard traps, visible focus, headings/labels,
 and a screen-reader pass (NVDA/Narrator). None of this replaces testing with blind users.
@@ -276,6 +322,17 @@ production build). Check:
 - [ ] "Speak, then listen" → mic indicator appears only after speech ends.
 - [ ] Typed command field + Enter works without a mic (keyboard fallback).
 - [ ] Switch to العربية → Arabic voice installed? Say "التالي" and "العقدة ب".
+
+### Manual screen-reader check (done 2026-11-27, sighted tester)
+
+NVDA 2026.3.1 (temporary run, not installed) + Chrome, on the dev test page, Feedback = "Screen reader only":
+- ✅ The test announcement and every exam message were read **exactly once**; the app's own voice stayed silent.
+- ✅ After "Start exam", focus moved to the `role="application"` key area, so Space/Escape reached the page (no NVDA browse-mode capture).
+- Fixed on the way (test page): the developer log and circuit panel were live regions and flooded NVDA; exam messages now use one `role="alert"` region, written 250 ms after a focus change.
+
+**UI owner, take these into the real exam page:** exactly one live region for exam messages; no other `aria-live`/`role="log"` regions with changing content; push-to-talk keys inside a focused `role="application"` area (or tell users to switch NVDA to focus mode); output setting chosen before starting.
+
+Still not done: focus order and labels of the real UI, a full exam with NVDA, Narrator/JAWS, and testing by blind students.
 
 ## Limitations
 

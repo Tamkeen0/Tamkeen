@@ -18,12 +18,15 @@ export {
 export type { ListenOptions, SpeechEnvironment } from './speech';
 
 export { parseCommand } from './parser';
-export { parseNavigation } from './navigation';
+export { parseNavigation, matchOption } from './navigation';
 export type { NavigationCommand } from './navigation';
 export { describeDiagram, createDiagramExplorer } from './diagram';
 export type { DiagramExplorer, DiagramFocus } from './diagram';
 export { readBackText } from './readback';
-export { questionSpeech, prompts, recoveryPrompt, needsKeyboardFallback, COMMAND_SUMMARY } from './prompts';
+export { questionSpeech, prompts, recoveryPrompt, needsKeyboardFallback, editResultPrompt, COMMAND_SUMMARY } from './prompts';
+export type { AnswerState, QuestionSpeechOptions } from './prompts';
+export { parseEditCommand, applyEdit, AnswerDraft } from './editing';
+export type { EditCommand, EditResult, EditFailure } from './editing';
 
 export { VoiceError, isVoiceError } from './errors';
 export type { VoiceErrorCode } from './errors';

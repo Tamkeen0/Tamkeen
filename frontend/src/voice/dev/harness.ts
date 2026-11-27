@@ -5,6 +5,7 @@ import { TEST_CIRCUITS } from './circuits';
 import type { TestCircuit } from './circuits';
 import { buildDemoExam } from './demo-exam';
 import { createMemorySession, ReferenceController } from './reference-controller';
+import type { OutputMode } from './reference-controller';
 import {
   createDiagramExplorer,
   isRecognitionSupported,
@@ -62,6 +63,26 @@ function selectCircuit(id: string): void {
 let flow: ReferenceController | null = null;
 let flowBusy = false;
 
+/**
+ * Put text in the alert region. Clear first and set it after a short delay so the screen
+ * reader sees a fresh change (also when the same text repeats) and has finished announcing
+ * a focus change (e.g. "Exam keys…") instead of dropping the update.
+ */
+let announceTimer: ReturnType<typeof setTimeout> | null = null;
+function announceToScreenReader(text: string): void {
+  const live = $('flowLive');
+  if (announceTimer) clearTimeout(announceTimer);
+  live.textContent = '';
+  announceTimer = setTimeout(() => {
+    live.textContent = text;
+    write(`screen reader region: ${text}`);
+  }, 250);
+}
+
+$('srTest').addEventListener('click', () => {
+  announceToScreenReader('Screen reader test. If you hear this, announcements work.');
+});
+
 function renderFlowStatus(): void {
   const el = $('flowStatus');
   if (!flow) {
@@ -69,8 +90,17 @@ function renderFlowStatus(): void {
     return;
   }
   const saved = Object.keys(flow.api.session.answers).length;
-  const mic = flow.keyboardOnly ? 'keyboard only' : flow.listening ? 'listening…' : flowBusy ? 'speaking…' : 'press Space to talk';
-  el.textContent = `Question ${flow.index + 1} of ${flow.total} · mode: ${flow.mode} · ${mic} · answers saved: ${saved} · ${flow.api.session.status}`;
+  const mic = flow.keyboardOnly
+    ? 'keyboard only'
+    : flow.listening
+      ? flow.mode === 'dictation'
+        ? 'dictating… (pause to finish, Escape to stop)'
+        : 'listening…'
+      : flowBusy
+        ? 'speaking…'
+        : 'press Space to talk';
+  const draft = flow.pending !== null ? ' · unsaved draft' : '';
+  el.textContent = `Question ${flow.index + 1} of ${flow.total} · mode: ${flow.mode} · ${mic}${draft} · answers saved: ${saved} · ${flow.api.session.status}`;
 }
 
 async function runFlow(step: Promise<void>): Promise<void> {
@@ -92,16 +122,20 @@ $('flowStart').addEventListener('click', () => {
   flow = new ReferenceController({
     exam: buildDemoExam(circuit.diagram),
     api: createMemorySession(),
-    onAnnounce: (text) => {
-      $('flowAnnounce').textContent = text;
+    output: $<HTMLSelectElement>('flowOutput').value as OutputMode,
+    onMessage: (text) => {
+      $('flowMessage').textContent = text; // visible only; not a live region
       write(`exam says: ${text}`);
     },
+    // Live region only gets messages per the feedback setting, so NVDA does not hear them twice.
+    onAnnounce: (text) => announceToScreenReader(text),
     onHeard: (text) => write(`exam heard: "${text}"`),
     onChange: renderFlowStatus,
   });
   write(`exam: started (question 3 circuit: ${circuit.label})`);
   // Move focus off the button so Space talks instead of restarting.
-  $('flowStatus').focus();
+  // Focus the role=application area so NVDA passes Space/Escape to the page (and Space never restarts).
+  $('flowKeys').focus();
   void runFlow(flow.start());
 });
 
@@ -127,11 +161,19 @@ document.addEventListener('keydown', (e) => {
   e.preventDefault(); // Space talks; it does not press the focused button
   if (flowBusy) return;
   if (flow.keyboardOnly) {
-    $('flowAnnounce').textContent = 'Microphone unavailable: type in the box instead.';
+    $('flowMessage').textContent = 'Microphone unavailable: type in the box instead.';
+    announceToScreenReader('Microphone unavailable: type in the box instead.');
     $<HTMLInputElement>('flowType').focus();
     return;
   }
   void runFlow(flow.turn());
+});
+
+$<HTMLSelectElement>('flowOutput').addEventListener('change', (e) => {
+  const value = (e.target as HTMLSelectElement).value as OutputMode;
+  if (flow) flow.output = value;
+  if (value === 'screenReader') stopSpeaking();
+  write(`exam feedback: ${value}`);
 });
 
 const circuitSelect = $<HTMLSelectElement>('circuit');

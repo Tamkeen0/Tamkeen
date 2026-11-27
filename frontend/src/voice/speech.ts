@@ -43,7 +43,11 @@ export interface RecognitionLike {
   onresult: ((ev: RecognitionEventLike) => void) | null;
   onerror: ((ev: { error?: string; message?: string }) => void) | null;
   onend: ((ev?: unknown) => void) | null;
+  /** Fired when speech (not just sound) is detected; optional in fakes. */
+  onspeechstart?: ((ev?: unknown) => void) | null;
   start(): void;
+  /** Stop gracefully, delivering any pending final result; optional in fakes. */
+  stop?(): void;
   abort(): void;
 }
 
@@ -55,11 +59,25 @@ export interface SpeechEnvironment {
 }
 
 export interface ListenOptions {
-  /** Give up if nothing is recognised within this many ms (default 10000). */
+  /**
+   * Give up if no speech has STARTED within this many ms (default 10000).
+   * Time spent speaking never counts, so long answers are not cut off.
+   */
   timeoutMs?: number;
+  /**
+   * 'command' (default): one short utterance.
+   * 'dictation': keep listening across natural pauses and resolve with everything
+   * heard once the student has been silent for `endSilenceMs`.
+   */
+  mode?: 'command' | 'dictation';
+  /** Dictation only: silence after the last words that ends the answer (default 2500 ms). */
+  endSilenceMs?: number;
+  /** Safety cap once speech has started (default 120000 ms dictation, 20000 ms command); resolves with what was heard. */
+  maxDurationMs?: number;
 }
 
 export const DEFAULT_LISTEN_TIMEOUT_MS = 10_000;
+export const DEFAULT_END_SILENCE_MS = 2_500;
 const MAX_CHUNK = 180;
 
 function browserEnvironment(): SpeechEnvironment {
@@ -306,21 +324,29 @@ function recognitionError(code: string | undefined): VoiceError {
   }
 }
 
-function transcriptOf(ev: RecognitionEventLike): string {
-  const parts: string[] = [];
+function transcriptOf(ev: RecognitionEventLike, finalOnly = true): { final: string; interim: string } {
+  const finals: string[] = [];
+  const interim: string[] = [];
   const results = ev?.results ?? [];
   for (let i = 0; i < results.length; i++) {
     const r = results[i];
-    if (r && r.isFinal !== false && r.length > 0 && typeof r[0]?.transcript === 'string') parts.push(r[0].transcript);
+    if (!r || r.length === 0 || typeof r[0]?.transcript !== 'string') continue;
+    if (r.isFinal !== false) finals.push(r[0].transcript);
+    else if (!finalOnly) interim.push(r[0].transcript);
   }
-  return parts.join(' ').trim();
+  const join = (xs: string[]) => xs.map((x) => x.trim()).filter(Boolean).join(' ');
+  return { final: join(finals), interim: join(interim) };
 }
 
 /**
- * Listen for one utterance and resolve with the literal transcript (only
- * surrounding whitespace trimmed). Rejects with VoiceError: unsupported,
+ * Listen and resolve with the literal transcript (only whitespace between and
+ * around recognised segments normalised). Rejects with VoiceError: unsupported,
  * permission-denied, no-speech, timeout, cancelled, audio-capture, network,
  * busy, language-unavailable or unknown. Never resolves with an empty string.
+ *
+ * Nothing heard is ever thrown away: if listening fails or is stopped after
+ * some words were recognised, the rejection carries them in
+ * `error.partialTranscript` so the UI can keep them as a draft.
  */
 export function listenOnce(options: ListenOptions = {}): Promise<string> {
   const e = env();
@@ -328,22 +354,36 @@ export function listenOnce(options: ListenOptions = {}): Promise<string> {
   if (!createRecognition) return Promise.reject(voiceError('unsupported', 'recognitionUnsupported'));
   if (pendingListen) return Promise.reject(voiceError('busy', 'busy'));
   const timeoutMs = options.timeoutMs ?? DEFAULT_LISTEN_TIMEOUT_MS;
+  const dictation = options.mode === 'dictation';
+  const endSilenceMs = options.endSilenceMs ?? DEFAULT_END_SILENCE_MS;
+  const maxDurationMs = options.maxDurationMs ?? (dictation ? 120_000 : 20_000);
 
   return new Promise<string>((resolve, reject) => {
-    let timer: ReturnType<typeof setTimeout> | null = null;
+    let startTimer: ReturnType<typeof setTimeout> | null = null;
+    let silenceTimer: ReturnType<typeof setTimeout> | null = null;
+    let maxTimer: ReturnType<typeof setTimeout> | null = null;
+    let finalText = '';
+    let interimText = '';
+    const heard = () => [finalText, interimText].filter(Boolean).join(' ').trim();
+    const clearTimers = () => {
+      for (const t of [startTimer, silenceTimer, maxTimer]) if (t) clearTimeout(t);
+      startTimer = silenceTimer = maxTimer = null;
+    };
     const pending: PendingListen = {
       settled: false,
       recognition: null,
       settle: (outcome) => {
         if (pending.settled) return;
         pending.settled = true;
-        if (timer) clearTimeout(timer);
+        clearTimers();
+        if (!outcome.ok && heard()) outcome.error.partialTranscript = heard();
         const rec = pending.recognition;
         pending.recognition = null;
         if (rec) {
           rec.onresult = null;
           rec.onerror = null;
           rec.onend = null;
+          rec.onspeechstart = null;
           if (!outcome.ok) {
             try {
               rec.abort();
@@ -359,6 +399,26 @@ export function listenOnce(options: ListenOptions = {}): Promise<string> {
     };
     pendingListen = pending;
     const fail = (error: VoiceError) => pending.settle({ ok: false, error });
+    /** Resolve with everything heard, or no-speech if nothing was. */
+    const finish = () => {
+      const text = heard();
+      if (text) pending.settle({ ok: true, text });
+      else fail(voiceError('no-speech', 'noSpeech', 'ended'));
+    };
+    /** Speech has begun: the "no speech" timeout no longer applies. */
+    const speechStarted = () => {
+      if (!startTimer) return;
+      clearTimeout(startTimer);
+      startTimer = null;
+      maxTimer = setTimeout(() => {
+        try {
+          pending.recognition?.stop?.();
+        } catch {
+          /* ignore */
+        }
+        finish();
+      }, maxDurationMs);
+    };
 
     const start = () => {
       if (pending.settled) return;
@@ -366,22 +426,44 @@ export function listenOnce(options: ListenOptions = {}): Promise<string> {
       try {
         rec = createRecognition();
         rec.lang = languageTag();
-        rec.continuous = false;
-        rec.interimResults = false;
+        rec.continuous = dictation;
+        rec.interimResults = dictation;
         rec.maxAlternatives = 1;
       } catch (err) {
         fail(voiceError('unknown', 'startFailed', String(err)));
         return;
       }
+      rec.onspeechstart = () => speechStarted();
       rec.onresult = (ev) => {
-        const text = transcriptOf(ev);
-        if (text) pending.settle({ ok: true, text });
-        else fail(voiceError('no-speech', 'noSpeech'));
+        speechStarted();
+        if (!dictation) {
+          const { final } = transcriptOf(ev);
+          if (final) pending.settle({ ok: true, text: final });
+          else fail(voiceError('no-speech', 'noSpeech'));
+          return;
+        }
+        // Dictation: results accumulate; the answer ends after a pause of endSilenceMs.
+        const { final, interim } = transcriptOf(ev, false);
+        finalText = final;
+        interimText = interim;
+        if (silenceTimer) clearTimeout(silenceTimer);
+        silenceTimer = setTimeout(() => {
+          try {
+            pending.recognition?.stop?.();
+          } catch {
+            /* ignore */
+          }
+          finish();
+        }, endSilenceMs);
       };
-      rec.onerror = (ev) => fail(recognitionError(ev?.error));
-      rec.onend = () => fail(voiceError('no-speech', 'noSpeech', 'ended'));
+      rec.onerror = (ev) => {
+        // A late "no-speech" after words were heard just means the student stopped talking.
+        if (dictation && ev?.error === 'no-speech' && heard()) finish();
+        else fail(recognitionError(ev?.error));
+      };
+      rec.onend = () => (dictation ? finish() : fail(voiceError('no-speech', 'noSpeech', 'ended')));
       pending.recognition = rec;
-      timer = setTimeout(() => fail(voiceError('timeout', 'timeout')), timeoutMs);
+      startTimer = setTimeout(() => fail(voiceError('timeout', 'timeout')), timeoutMs);
       try {
         rec.start();
       } catch (err) {

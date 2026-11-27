@@ -24,7 +24,8 @@ const SPECIAL = {
 const fake = createFakeSpeech();
 setSpeechEnvironment(fake.env);
 const api = createFakeApi(exam);
-const ui = new ReferenceController({ exam, api, listenTimeoutMs: 200 });
+// One typed line per turn, so "answer" waits for the next line instead of auto-listening.
+const ui = new ReferenceController({ exam, api, listenTimeoutMs: 200, autoListenAfterAnswer: false });
 
 const out = (s) => process.stdout.write(s);
 const hear = () => {

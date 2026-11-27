@@ -8,265 +8,347 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { setSpeechEnvironment } from '../speech.ts';
 import { setLanguage } from '../language.ts';
-import { prompts, COMMAND_SUMMARY } from '../prompts.ts';
+import { prompts, questionSpeech } from '../prompts.ts';
 import { en } from '../lang/en.ts';
 import { createFakeSpeech, createFakeApi } from './support/fake-speech.mjs';
 import { ReferenceController } from '../dev/reference-controller.ts';
 
 const exam = JSON.parse(readFileSync(new URL('../../../../fixtures/demo_exam.json', import.meta.url), 'utf8'));
+const [Q1, Q2, Q3] = exam.questions;
 
 let fake;
 let api;
 let ui;
 
-function setup(options) {
-  fake = createFakeSpeech(options);
+function setup({ speech = {}, ...controller } = {}) {
+  fake = createFakeSpeech(speech);
   setSpeechEnvironment(fake.env);
   api = createFakeApi(exam);
-  ui = new ReferenceController({ exam, api, listenTimeoutMs: 40 });
+  ui = new ReferenceController({ exam, api, listenTimeoutMs: 40, dictationEndSilenceMs: 25, ...controller });
 }
 
-/** Student speaks one utterance (or script item); returns everything the student heard in reply. */
-async function sayAndHear(item) {
-  fake.student(item);
+/** Start the exam and clear the opening readout from the transcript. */
+async function begin() {
+  await ui.start();
+  return fake.heardSince();
+}
+
+/** One talk-key press: the student says `items` (a command, plus dictation if it opens). Returns what they heard. */
+async function press(...items) {
+  for (const it of items) fake.student(it);
+  const turns = fake.state.listens;
   await ui.turn();
+  assert.equal(fake.state.script.length, 0, `unused script items after ${JSON.stringify(items)}`);
+  assert.ok(fake.state.listens > turns);
   const heard = fake.heardSince();
-  assert.ok(heard.trim().length > 0, `no spoken feedback after ${JSON.stringify(item)}`);
+  assert.ok(heard.trim().length > 0, `no spoken feedback after ${JSON.stringify(items)}`);
   return heard;
 }
 
-/** Student types (keyboard fallback); returns the live-region announcement. */
-async function typeAndRead(text) {
+/** Keyboard fallback: returns the last message. */
+async function typeIn(text) {
   const before = ui.live.length;
   await ui.type(text);
-  assert.ok(ui.live.length > before, `no announcement after typing "${text}"`);
+  assert.ok(ui.live.length > before, `no feedback after typing "${text}"`);
   return ui.live.at(-1);
-}
-
-function assertMicNeverOpenDuringSpeech() {
-  assert.equal(fake.state.micOpenedWhileSpeaking, 0, 'microphone was opened while text-to-speech was playing');
 }
 
 beforeEach(() => setLanguage('en'));
 afterEach(() => {
-  assertMicNeverOpenDuringSpeech();
+  assert.equal(fake.state.micOpenedWhileSpeaking, 0, 'microphone was opened while text-to-speech was playing');
   setSpeechEnvironment(null);
 });
 
-test('voice only: navigate, explore, answer, confirm and submit the whole exam', async () => {
+// ---------- the whole exam, efficiently ----------
+
+test('voice only: the whole exam in few, natural steps', async () => {
   setup();
   await ui.start();
-  let heard = fake.heardSince();
-  assert.match(heard, /^Question 1 of 3\. Which number is prime\?/);
-  assert.match(heard, /Options: A\. 9; B\. 15; C\. 17; D\. 21\./);
+  assert.equal(fake.heardSince(), `${questionSpeech(Q1, 0, 3)} ${prompts.welcome}`);
 
-  // Q1 (MCQ): dictate, hear it back, confirm
-  assert.equal(await sayAndHear('answer'), prompts.dictationStart);
-  assert.match(await sayAndHear('C. 17'), /^You said: C\. 17\. Say confirm to save/);
-  assert.equal(await sayAndHear('confirm'), 'Answer saved for question 1.');
+  // MCQ: two presses ("option C", "save it")
+  assert.equal(await press('option C'), 'You chose: C. 17. Say save to keep it, or choose another option.');
+  assert.equal(await press('save it'), 'Answer saved for question 1.');
 
-  // Q2 (math): read-back verbalises symbols, stored text stays literal
-  assert.match(await sayAndHear('next'), /^Question 2 of 3\. Find the derivative of f of x/);
-  await sayAndHear('answer');
-  assert.match(await sayAndHear('2 X + 3'), /^You said: 2 X plus 3\./);
-  await sayAndHear('confirm');
+  // Natural navigation; question read automatically
+  assert.equal(await press('Move to the next question.'), questionSpeech(Q2, 1, 3));
 
-  // Q3 (diagram): explore with follow-up references, refusal, then answer
-  heard = await sayAndHear('next');
-  assert.match(heard, /^Question 3 of 3\./);
-  assert.match(heard, /This question has a circuit diagram\. Say explore/);
-  assert.match(await sayAndHear('explore R2'), /^R2 is a resistor with value 4 ohms/);
-  assert.match(await sayAndHear('what is connected to its first node'), /^Node B is connected to/);
-  assert.match(await sayAndHear('what other components are connected there'), /^Besides R2, node B is connected to R1/);
-  assert.equal(await sayAndHear('Solve this circuit'), en.responses.refusal);
-  await sayAndHear('answer');
-  await sayAndHear('the current is 2 amps');
-  await sayAndHear('confirm');
+  // Dictation opens right after "answer" (one press), read back, "yes" saves
+  assert.equal(await press('answer', '2 X + 3'), 'Dictate your answer now. You said: 2 X plus 3. Say save to keep it, or try again.');
+  assert.equal(await press('yes'), 'Answer saved for question 2.');
 
-  // Submit with explicit confirmation
-  assert.match(await sayAndHear('submit'), /^You answered 3 of 3 questions\. Say confirm to submit/);
-  assert.equal(await sayAndHear('confirm'), prompts.submitted);
+  // Diagram question with follow-ups and a refused solution request
+  assert.equal(await press('next one'), questionSpeech(Q3, 2, 3));
+  assert.match(await press('explore R2'), /^R2 is a resistor with value 4 ohms/);
+  assert.match(await press('what is connected to its first node'), /^Node B is connected to/);
+  assert.match(await press('what other components are connected there'), /^Besides R2, node B is connected to R1/);
+  assert.equal(await press('Solve this circuit'), en.responses.refusal);
+  await press('answer', 'the current is 2 amps');
+  await press('save');
+
+  // Submit: strict
+  assert.match(await press('submit'), /^You answered 3 of 3 questions\. Say confirm to submit/);
+  assert.equal(await press('yes'), prompts.submitReminder, '"yes" never submits');
+  assert.equal(await press('confirm'), prompts.submitted);
   assert.equal(api.session.status, 'submitted');
-  assert.equal(await sayAndHear('next'), prompts.alreadySubmitted);
-
-  // Answers are the literal transcripts
   assert.deepEqual(api.session.answers, { q1: 'C. 17', q2: '2 X + 3', q3: 'the current is 2 amps' });
 });
 
-test('navigation: boundaries, repeat, previous; diagram references reset per question', async () => {
+// ---------- Priority 1: question reading ----------
+
+test('reading: full on first visit, brief with answer status on return; no repeated instructions', async () => {
   setup();
-  await ui.start();
-  fake.heardSince();
-  assert.equal(await sayAndHear('previous'), prompts.firstQuestion);
-  assert.match(await sayAndHear('repeat'), /^Question 1 of 3\./);
-  await sayAndHear('next');
-  await sayAndHear('next');
-  await sayAndHear('explore R1');
-  assert.equal(await sayAndHear('next'), prompts.lastQuestion);
-  assert.match(await sayAndHear('go back'), /^Question 2 of 3\./);
-  assert.match(await sayAndHear('explore its value'), /There is no diagram for this question/);
-  assert.match(await sayAndHear('next'), /^Question 3 of 3\./);
-  assert.match(await sayAndHear('explore its value'), /^Which component do you mean/, 'focus must not survive leaving the question');
+  await begin();
+  await press('option C');
+  await press('save it');
+  await press('next');
+  const back = await press('previous');
+  assert.equal(back, 'Question 1 of 3. Which number is prime? Options: A. 9; B. 15; C. 17; D. 21. You have a saved answer for this question.');
+  assert.doesNotMatch(back, /Say option|Say answer/, 'instructions are not repeated on return');
+  assert.equal(await press('read the question again'), back);
+  assert.equal(await press('read the options'), 'Options: A. 9; B. 15; C. 17; D. 21.');
+
+  await press('question 3');
+  const diagramAnswer = await press('explore R1');
+  assert.equal(await press('repeat that'), diagramAnswer, '"repeat that" repeats the last message, not the question');
+  assert.equal(await press('what did you say'), diagramAnswer);
+  await press('question 1');
+  const q3again = await press('question 3');
+  assert.match(q3again, /This question has a circuit diagram\.$/, 'diagram noted briefly, explore example not repeated');
+  assert.equal(await press('read the options'), prompts.noOptions);
 });
 
-test('voice-guided navigation: jump, progress, re-read, read my answer — never losing an unconfirmed answer', async () => {
+// ---------- Priority 2: natural commands ----------
+
+test('natural phrasing for navigation, help, status and time; uncertain speech does nothing destructive', async () => {
   setup();
-  await ui.start();
-  fake.heardSince();
-  await sayAndHear('answer');
-  await sayAndHear('x^2 + 3x');
-  await sayAndHear('confirm');
-
-  assert.match(await sayAndHear('Go to the next question.'), /^Question 2 of 3\./);
-  assert.match(await sayAndHear('Read the current question again.'), /^Question 2 of 3\./);
-  assert.equal(
-    await sayAndHear('How many questions are remaining?'),
-    'You are on question 2 of 3. 1 more question after this one. You have answered 1 of 3. Unanswered: questions 2 and 3.',
-  );
-  assert.equal(await sayAndHear('Read my previous answer.'), 'You have not saved an answer for question 2 yet. Say answer to dictate one.');
-  assert.match(await sayAndHear('Go back to question two.'), /^Question 2 of 3\./, 'already there: re-reads');
-  assert.match(await sayAndHear('go to question three'), /^Question 3 of 3\./);
-  assert.match(await sayAndHear('Go back to question one.'), /^Question 1 of 3\./);
-  assert.equal(await sayAndHear('Read my previous answer.'), 'Your saved answer for question 1 is: x squared plus 3 x.');
-  assert.equal(await sayAndHear('read my answer to question 3'), 'You have not saved an answer for question 3 yet. Say answer to dictate one.');
-  assert.match(await sayAndHear('go to question 7'), /^There is no question 7\. The exam has 3 questions/);
-  assert.match(await sayAndHear('the final question'), /^Question 3 of 3\./);
-
-  // Navigation is held while an answer waits for confirmation
-  await sayAndHear('answer');
-  await sayAndHear('2 amps');
-  assert.match(await sayAndHear('go to question 1'), /^Finish this step first\. Say confirm to save this answer/);
-  assert.match(await sayAndHear('how many questions are left'), /^Finish this step first\./);
-  await sayAndHear('confirm');
-  assert.match(await sayAndHear('where am I'), /You have answered 2 of 3\. Unanswered: question 2\./);
-
-  // A solution request phrased around "answer" is still refused
-  assert.equal(await sayAndHear('what is the answer'), en.responses.refusal);
-  assert.equal(api.session.answers.q1, 'x^2 + 3x', 'stored literally');
+  await begin();
+  const at = (n) => new RegExp(`^Question ${n} of 3\\.`);
+  for (const [say, n] of [
+    ['next one', 2], ['go to the previous one', 1], ['skip this question', 2], ['back one', 1], ['move on', 2],
+    ['Go to question three.', 3], ['the first question', 1], ['the final question', 3], ['can you go to the previous one', 2],
+  ]) {
+    assert.match(await press(say), at(n), say);
+  }
+  assert.equal(await press('help'), prompts.help);
+  assert.equal(await press('what can I say'), prompts.help);
+  assert.equal(await press('how much time is left'), prompts.timeUnavailable, 'never invents remaining time');
+  assert.equal(await press('what time is it'), prompts.timeUnavailable);
+  assert.equal(await press('is my answer saved'), 'Question 2 has no answer yet.');
+  assert.equal(await press('necks'), prompts.notUnderstood);
+  assert.ok(prompts.notUnderstood.length < 70, 'misses get a short reply, not the full command list');
+  for (const risky of ['delete', 'submit next', "don't submit", 'clear', 'yes']) {
+    await press(risky);
+    assert.equal(api.session.status, 'active', risky);
+    assert.deepEqual(api.session.answers, {}, risky);
+  }
 });
 
-test('recognition errors: silence, timeout, mishearing and network all get a spoken way forward', async () => {
+test('remaining time comes only from authoritative data when provided', async () => {
+  let remaining = 12 * 60_000 + 30_000;
+  setup({ timeRemainingMs: () => remaining });
+  await begin();
+  assert.equal(await press('how much time is left'), '12 minutes remaining.');
+  remaining = 75 * 60_000;
+  assert.equal(await press('how long do I have'), '1 hour and 15 minutes remaining.');
+  remaining = 20_000;
+  assert.equal(await press('time remaining'), 'Less than one minute remaining.');
+});
+
+// ---------- Priority 3: reliable answer capture ----------
+
+test('long dictation across pauses is captured whole and literally', async () => {
   setup();
-  await ui.start();
-  fake.heardSince();
-  assert.equal(await sayAndHear({ silence: true }), "I didn't hear anything. Please try again.");
-  assert.equal(await sayAndHear({ error: 'no-speech' }), "I didn't hear anything. Please try again.");
-  assert.equal(await sayAndHear({ hang: true }), "I didn't hear anything. Please try again.", 'timeout');
-  const misheard = await sayAndHear('necks');
-  assert.ok(misheard.startsWith('Sorry, I did not understand.') && misheard.includes(COMMAND_SUMMARY), misheard);
-  assert.match(await sayAndHear({ error: 'network' }), /could not be reached\. Please try again, or continue with the keyboard/);
-  // the student can carry on by voice afterwards
-  assert.match(await sayAndHear('next'), /^Question 2 of 3\./);
+  await begin();
+  await press('question 2');
+  const heard = await press('answer', { parts: ['The derivative is', 'two x plus three', 'because the constant drops out'], gapMs: 8 });
+  assert.equal(heard, 'Dictate your answer now. You said: The derivative is two x plus three because the constant drops out. Say save to keep it, or try again.');
+  await press('save');
+  assert.equal(api.session.answers.q2, 'The derivative is two x plus three because the constant drops out');
+});
+
+test('a draft is never lost: Escape, recognition errors, navigation, "no" and re-dictation all keep it', async () => {
+  setup();
+  await begin();
+  await press('question 2');
+
+  // Escape while dictating keeps the words already heard
+  setup({ dictationEndSilenceMs: 5000 }); // long pause allowed: only Escape ends this dictation
+  await begin();
+  await press('question 2');
+  fake.student('answer', { parts: ['f prime of x is'], hang: true });
+  const t = ui.turn();
+  while (fake.state.wordsHeard === 0) await new Promise((r) => setTimeout(r, 2));
+  await ui.escape();
+  await t;
+  assert.equal(fake.heardSince(), 'Dictate your answer now. Stopped listening. You said: f prime of x is. Say save to keep it, or try again.');
+  assert.equal(ui.pending, 'f prime of x is');
+
+  // A network error mid-dictation keeps the words too
+  assert.match(await press('try again', { parts: ['2 x plus 3'], error: 'network' }), /could not be reached.*You said: 2 x plus 3\./);
+  assert.equal(ui.pending, '2 x plus 3');
+  assert.match(await press('undo'), /now: f prime of x is\./, 're-dictation replaced the draft, undo brings the old one back');
+  assert.match(await press('redo', '2x + 3'), /You said: 2 x plus 3\./);
+  assert.equal(ui.pending, '2x + 3');
+
+  // Navigation keeps the draft and says so; returning announces it; save works later
+  const leave = await press('next');
+  assert.match(leave, /^Your unsaved draft for question 2 is kept\. Question 3 of 3\./);
+  const back = await press('previous');
+  assert.match(back, /You have an unsaved draft for this question\. Say save to keep it\.$/);
+  assert.match(await press('read my answer'), /^Your unsaved draft for question 2 is: /);
+
+  // "no" / "stop" are too uncertain to delete dictated content
+  assert.equal(await press('no'), prompts.draftKept);
+  assert.ok(ui.pending);
+
+  // Explicit discard is undoable
+  assert.equal(await press('discard'), prompts.draftDiscarded);
+  assert.equal(ui.pending, null);
+  assert.match(await press('undo'), /^Draft restored: /);
+  assert.ok(ui.pending);
+  assert.equal(api.session.answers.q2, undefined, 'nothing was saved along the way');
+});
+
+test('saved vs draft vs submitted are always distinguishable', async () => {
+  setup();
+  await begin();
+  assert.equal(await press('is my answer saved'), 'Question 1 has no answer yet.');
+  await press('option B');
+  assert.match(await press('have I answered this question'), /^Question 1 has an unsaved draft\./);
+  await press('save it');
+  assert.equal(await press('is it saved'), 'Your answer for question 1 is saved.');
+  await press('next');
+  await press('answer', '7');
+  const sub = await press('submit');
+  assert.match(sub, /You answered 1 of 3 questions\. You have an unsaved draft for question 2; drafts are not submitted\./);
+  await press('confirm');
+  assert.deepEqual(api.session.answers, { q1: 'B. 15' }, 'the unsaved draft was not submitted');
+  assert.equal(await press('is my answer saved'), 'Your exam has been submitted. Your answer for question 2 can no longer be changed.');
+  assert.equal(await press('option A'), prompts.alreadySubmitted);
+  assert.match(await press('read my answer to question 1'), /B\. 15/, 'review still works after submitting');
+});
+
+test('saving needs a clear intent; dictation is always literal', async () => {
+  setup();
+  await begin();
+  assert.equal(await press('yes'), prompts.nothingToConfirm, '"yes" with nothing pending saves nothing');
+  await press('answer', 'submit');
+  assert.equal(ui.pending, 'submit', 'dictated "submit" is just the answer');
+  assert.equal(api.session.status, 'active');
+  await press('save');
+  assert.equal(api.session.answers.q1, 'submit');
+  await press('answer', 'delete the last word');
+  await press('confirm');
+  assert.equal(api.session.answers.q1, 'delete the last word', 'dictated edit phrases are not executed');
+});
+
+test('multiple choice: letters, spoken letters, numbers and option text', async () => {
+  setup();
+  await begin();
+  for (const [say, option] of [['option see', 'C. 17'], ['I choose B', 'B. 15'], ['select option 4', 'D. 21'], ['the answer is 17', 'C. 17'], ['option a', 'A. 9']]) {
+    assert.equal(await press(say), prompts.optionChosen(option), say);
+  }
+  assert.equal(await press('option F'), 'There is no option F. Options: A. 9; B. 15; C. 17; D. 21.');
+  await press('question 2');
+  assert.equal(await press('option C'), prompts.noOptions);
+});
+
+// ---------- Priority 4: correction ----------
+
+test('fast correction: fix a misrecognition without re-dictating, undo, then save', async () => {
+  setup();
+  await begin();
+  await press('question 3');
+  assert.match(await press('answer', 'the current through resistor or 1 is 3 amps'), /resistor or 1/);
+  assert.equal(await press('replace or 1 with R1'), 'Changed. Your answer is now: the current through resistor R1 is 3 amps. Say save to keep it, or keep editing.');
+  assert.match(await press('replace three with four'), /four amps/);
+  assert.match(await press('undo'), /3 amps/);
+  assert.match(await press('clear my answer'), /^Your draft is now empty\. Say undo to bring it back/);
+  assert.equal(await press('save'), prompts.edited(''), 'an emptied draft is not saved');
+  assert.match(await press('undo'), /3 amps/);
+  await press('save');
+  assert.equal(api.session.answers.q3, 'the current through resistor R1 is 3 amps');
+  // Editing a saved answer makes a draft that still needs saving
+  await press('add through R2');
+  assert.equal(api.session.answers.q3, 'the current through resistor R1 is 3 amps');
+  assert.equal(await press('cancel'), prompts.draftDiscarded);
+});
+
+// ---------- recovery and keyboard ----------
+
+test('recognition errors: silence, timeout, network; the student continues by voice', async () => {
+  setup();
+  await begin();
+  assert.equal(await press({ silence: true }), "I didn't hear anything. Please try again.");
+  assert.equal(await press({ hang: true }), "I didn't hear anything. Please try again.", 'timeout');
+  assert.match(await press({ error: 'network' }), /could not be reached/);
+  assert.equal(await press('answer', { hang: true }), "Dictate your answer now. I didn't hear anything. Please try again. Say answer to dictate again.");
+  assert.match(await press('next'), /^Question 2 of 3\./);
   assert.equal(ui.keyboardOnly, false);
 });
 
-test('correcting a misrecognised answer before saving', async () => {
+test('microphone blocked mid-exam: spoken switch to keyboard, then the whole exam by keyboard', async () => {
   setup();
-  await ui.start();
-  await sayAndHear('next');
-  await sayAndHear('next');
-  await sayAndHear('answer');
-  const first = await sayAndHear('the current through resistor or 1 is 3 amps');
-  assert.match(first, /resistor or 1/, 'the mishearing must be audible in the read-back');
-  assert.equal(await sayAndHear('answer'), prompts.dictationStart, 'student re-dictates instead of confirming');
-  await sayAndHear('the current through R1 is 3 amps');
-  await sayAndHear('confirm');
-  assert.equal(api.session.answers.q3, 'the current through R1 is 3 amps');
-});
-
-test('no answer is saved without an explicit confirm', async () => {
-  setup();
-  await ui.start();
-  await sayAndHear('answer');
-  await sayAndHear('17');
-  await sayAndHear('confirm');
-  assert.equal(api.session.answers.q1, '17');
-
-  await sayAndHear('answer');
-  await sayAndHear('15');
-  assert.equal(await sayAndHear('next'), prompts.confirmAnswerReminder, 'navigation is not a confirmation');
-  assert.match(await sayAndHear({ silence: true }), /Say confirm to save this answer/);
-  assert.equal(await sayAndHear('yes'), prompts.confirmAnswerReminder, '"yes" is deliberately not confirm');
-  assert.equal(await sayAndHear('cancel'), prompts.answerCancelled);
-  assert.equal(api.session.answers.q1, '17', 'cancelled dictation leaves the saved answer unchanged');
-
-  // dictation text that sounds like a command is still just the answer
-  await sayAndHear('answer');
-  assert.match(await sayAndHear('submit'), /^You said: submit\./);
-  await sayAndHear('confirm');
-  assert.equal(api.session.answers.q1, 'submit');
-  assert.equal(api.session.status, 'active');
-});
-
-test('submitting requires explicit confirmation; cancel, silence and negation keep the exam open', async () => {
-  setup();
-  await ui.start();
-  fake.heardSince();
-  assert.match(await sayAndHear("don't submit"), /^Sorry, I did not understand/);
-  assert.match(await sayAndHear('submit'), /^You answered 0 of 3 questions/);
-  assert.equal(await sayAndHear('cancel'), prompts.submitCancelled);
-  await sayAndHear('submit');
-  assert.match(await sayAndHear({ error: 'no-speech' }), /Say confirm to submit the exam, or cancel/);
-  assert.equal(await sayAndHear('yes'), prompts.submitReminder);
-  assert.equal(await sayAndHear('submit'), prompts.submitReminder);
-  assert.equal(api.session.status, 'active');
-  assert.equal(await sayAndHear('confirm'), prompts.submitted);
-  assert.equal(api.session.status, 'submitted');
-});
-
-test('microphone blocked mid-exam: spoken switch to keyboard, then finish by keyboard only', async () => {
-  setup();
-  await ui.start();
-  fake.heardSince();
-  assert.match(await sayAndHear({ error: 'not-allowed' }), /^The microphone is blocked\. You can continue with the keyboard/);
+  await begin();
+  assert.match(await press({ error: 'not-allowed' }), /^The microphone is blocked\. You can continue with the keyboard/);
   assert.equal(ui.keyboardOnly, true);
-  await assert.rejects(ui.turn(), /microphone unavailable/, 'the controller stops using the microphone');
-
-  assert.match(await typeAndRead('answer'), /Dictate your answer now/);
-  assert.match(await typeAndRead('typed answer: 17'), /^You said: typed answer: 17/);
-  assert.match(await typeAndRead('confirm'), /^Answer saved for question 1/);
-  assert.match(await typeAndRead('next'), /^Question 2 of 3/);
-  assert.match(await typeAndRead('submit'), /^You answered 1 of 3/);
-  assert.equal(await typeAndRead('confirm'), prompts.submitted);
-  assert.deepEqual(api.session.answers, { q1: 'typed answer: 17' });
+  await assert.rejects(ui.turn(), /microphone unavailable/);
+  assert.match(await typeIn('option C'), /^You chose: C\. 17/);
+  assert.equal(await typeIn('save'), 'Answer saved for question 1.');
+  assert.match(await typeIn('go to question 2'), /^Question 2 of 3/);
+  assert.equal(await typeIn('answer'), prompts.dictationStart);
+  assert.match(await typeIn('f prime of x = 2x + 3'), /^You said: f prime of x equals 2 x plus 3/);
+  assert.equal(await typeIn('save'), 'Answer saved for question 2.');
+  assert.match(await typeIn('submit'), /^You answered 2 of 3/);
+  assert.equal(await typeIn('confirm'), prompts.submitted);
+  assert.deepEqual(api.session.answers, { q1: 'C. 17', q2: 'f prime of x = 2x + 3' });
 });
 
 test('browser without speech recognition starts in keyboard mode and says so', async () => {
-  setup({ recognition: false });
-  await ui.start();
+  setup({ speech: { recognition: false } });
+  await begin();
   assert.equal(ui.keyboardOnly, true);
   assert.equal(ui.live.at(-1), prompts.keyboardMode);
-  assert.match(await typeAndRead('explore R1'), /There is no diagram/);
-  assert.match(await typeAndRead('next'), /^Question 2 of 3/);
+  assert.match(await typeIn('next'), /^Question 2 of 3/);
 });
 
-test('no text-to-speech: every message still reaches the screen-reader live region', async () => {
-  setup({ synthesis: false });
-  await ui.start();
-  assert.match(ui.live[0], /^Question 1 of 3/);
-  fake.student('next', 'next', 'explore node B', 'solve it');
-  for (let i = 0; i < 4; i++) await ui.turn();
-  assert.match(ui.live.at(-3), /^Question 3 of 3/);
-  assert.match(ui.live.at(-2), /^Node B is connected to/);
-  assert.equal(ui.live.at(-1), en.responses.refusal);
-  assert.equal(fake.state.spoken.length, 0);
+// ---------- Priority 5: screen readers ----------
+
+test('screen-reader mode: no app speech, every message announced exactly once', async () => {
+  setup({ output: 'screenReader' });
+  await begin();
+  fake.student('next', 'explore node B');
+  await ui.turn();
+  await ui.turn();
+  assert.equal(fake.state.spoken.length, 0, 'no app TTS competing with the screen reader');
+  assert.deepEqual(ui.announced, ui.live, 'each message announced once');
+  assert.match(ui.announced.at(-1), /^There is no diagram/);
 });
 
-test('Escape while listening or dictating cancels cleanly with feedback', async () => {
+test('voice mode does not also announce (no duplicates with a screen reader); falls back if TTS fails', async () => {
+  setup({ output: 'voice' });
+  await begin();
+  await press('next');
+  assert.deepEqual(ui.announced, [], 'nothing duplicated in the live region');
+  setup({ output: 'voice', speech: { synthesis: false } });
+  await begin();
+  assert.deepEqual(ui.announced, ui.live, 'without app TTS, the live region gets everything');
+  setup({ output: 'both' });
+  await begin();
+  assert.equal(ui.announced.length, 1);
+  assert.ok(fake.state.spoken.length > 0);
+});
+
+// ---------- fairness ----------
+
+test('fairness: questions read verbatim from approved text; no hints on any question', async () => {
   setup();
-  await ui.start();
-  fake.heardSince();
-  fake.student({ hang: true });
-  const listening = ui.turn();
-  await new Promise((r) => setTimeout(r, 5));
-  await ui.escape();
-  await listening;
-  assert.ok(ui.live.includes('Stopped listening.'));
-
-  await sayAndHear('answer');
-  await sayAndHear('15');
-  await ui.escape();
-  assert.equal(ui.live.at(-1), prompts.answerCancelled);
-  assert.equal(ui.mode, 'command');
-  assert.equal(api.session.answers.q1, undefined);
+  await begin();
+  for (const n of [1, 2, 3]) {
+    const reading = await press(`question ${n}`);
+    assert.ok(reading.includes(exam.questions[n - 1].accessible_text), `question ${n} text read verbatim`);
+    assert.equal(await press('give me a hint'), en.responses.refusal);
+    assert.equal(await press('what is the answer'), en.responses.refusal);
+  }
 });

@@ -7,11 +7,11 @@ import { prompts } from '../prompts.ts';
 const nav = (t) => parseNavigation(t);
 
 test('the five requested commands', () => {
-  assert.equal(nav('Go to the next question.'), null, 'handled by parseCommand');
-  assert.equal(parseCommand('Go to the next question.').type, 'next');
+  assert.deepEqual(nav('Go to the next question.'), { type: 'next' });
+  assert.equal(parseCommand('Go to the next question.').type, 'next', 'the contract parser agrees');
   assert.deepEqual(nav('Go back to question two.'), { type: 'goto', question: 2 });
-  assert.equal(nav('Read the current question again.'), null, 'handled by parseCommand');
-  assert.equal(parseCommand('Read the current question again.').type, 'repeat');
+  assert.deepEqual(nav('Read the current question again.'), { type: 'repeatQuestion' });
+  assert.equal(parseCommand('Read the current question again.').type, 'repeat', 'the contract parser agrees');
   assert.deepEqual(nav('How many questions are remaining?'), { type: 'progress' });
   assert.deepEqual(nav('Read my previous answer.'), { type: 'readAnswer' });
 });
@@ -46,7 +46,7 @@ test('read my own saved answer, optionally for a numbered question', () => {
 
 test('not navigation: solution requests, judgement, negation, dictation-like and other commands', () => {
   for (const t of ['what is the answer', 'tell me the answer', 'is my answer correct', 'check my answer', 'is my answer right',
-    "don't go to question 2", 'not question 3', 'next', 'previous question', 'the last question', 'question',
+    "don't go to question 2", 'not question 3', "don't go to the next question", 'the last question', 'question',
     'what is question 2 about the current', 'I want to answer question two', 'answer', 'change my answer', '']) {
     assert.equal(nav(t), null, t);
   }
@@ -66,4 +66,49 @@ test('progress and saved-answer prompts', () => {
   assert.equal(prompts.savedAnswer(1, 'x^2 + 3x'), 'Your saved answer for question 2 is: x squared plus 3 x.');
   assert.equal(prompts.savedAnswer(0, undefined), 'You have not saved an answer for question 1 yet. Say answer to dictate one.');
   assert.equal(prompts.noSuchQuestion(5, 3), 'There is no question 5. The exam has 3 questions. Say a number from 1 to 3.');
+});
+
+test('natural phrasing for harmless actions', () => {
+  const cases = [
+    ['Move to the next question.', 'next'], ['next one', 'next'], ['move on', 'next'], ['skip this question', 'next'],
+    ['can you go to the next one', 'next'], ['go to the previous one', 'previous'], ['back one', 'previous'],
+    ['Repeat that.', 'repeatLast'], ['say that again', 'repeatLast'], ['what did you say', 'repeatLast'], ['pardon', 'repeatLast'],
+    ['Read the question again.', 'repeatQuestion'], ['what was the question', 'repeatQuestion'], ['repeat the question', 'repeatQuestion'],
+    ['read the options', 'readOptions'], ['what are the choices', 'readOptions'],
+    ['help', 'help'], ['what can I say', 'help'], ['what are the commands', 'help'],
+    ['is my answer saved', 'answerStatus'], ['have I answered this question', 'answerStatus'], ['did it save', 'answerStatus'],
+    ['how much time is left', 'time'], ['how long do I have', 'time'], ['what time is it', 'time'], ['time remaining', 'time'],
+    ['try again', 'redictate'], ['dictate again', 'redictate'], ['redo', 'redictate'],
+    ['yes', 'saveAnswer'], ['save it', 'saveAnswer'], ['save my answer', 'saveAnswer'], ['keep it', 'saveAnswer'],
+  ];
+  for (const [t, type] of cases) assert.equal(nav(t)?.type, type, t);
+});
+
+test('option choices: letters, spoken letters and numbers', () => {
+  for (const [t, choice] of [['option C', 'c'], ['option see', 'c'], ['I choose B', 'b'], ['select option 4', 4], ['the answer is 17', 17], ['pick a', 'a'], ['answer option d', 'd']]) {
+    assert.deepEqual(nav(t), { type: 'selectOption', choice }, t);
+  }
+  for (const t of ['answer', 'answer C please now', 'its fine', 'the answer is two x plus three']) {
+    assert.notEqual(nav(t)?.type, 'selectOption', t);
+  }
+});
+
+test('matchOption resolves letters, option text and positions only on MCQ', async () => {
+  const { matchOption } = await import('../navigation.ts');
+  const q = { id: 'q', type: 'mcq', text: 't', accessible_text: 't', options: ['A. 9', 'B. 15', 'C. 17', 'D. 21'], diagram: null };
+  assert.equal(matchOption(q, 'c'), 2);
+  assert.equal(matchOption(q, 17), 2, 'option text first');
+  assert.equal(matchOption(q, 2), 1, 'then position');
+  assert.equal(matchOption(q, 'f'), null);
+  assert.equal(matchOption({ ...q, type: 'math', options: [] }, 'a'), null);
+});
+
+test('destructive or committing actions are never matched loosely', () => {
+  for (const t of ['submit', 'submit my exam', 'confirm', 'clear', 'delete', 'discard', 'cancel', 'yes submit', 'yes confirm', 'no']) {
+    const r = nav(t);
+    assert.ok(r === null || !['saveAnswer'].includes(r.type) || t === 'yes', `${t} -> ${JSON.stringify(r)}`);
+    assert.ok(!r || !['goto', 'next', 'previous'].includes(r.type), t);
+  }
+  assert.equal(nav('yes submit'), null, '"yes submit" is not a save');
+  assert.equal(nav("yes don't save"), null, 'negated');
 });

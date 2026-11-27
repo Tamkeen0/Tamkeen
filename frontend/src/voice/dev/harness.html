@@ -35,13 +35,31 @@
     <fieldset>
       <legend>Hands-free exam (voice and keyboard only)</legend>
       <p id="flowHelp">
-        Press <strong>Start exam</strong> (or Enter on it). Then: <kbd>Space</kbd> = talk once,
+        Choose <strong>Feedback</strong> first (with NVDA running, pick "Screen reader only"), then press
+        <strong>Start exam</strong>. Focus moves to the exam keys area: <kbd>Space</kbd> = talk once,
         <kbd>Escape</kbd> = stop or back out. Or type in the box and press Enter.
         Question 3 uses the circuit selected below. Synthetic demo exam; answers stay in this page only.
       </p>
+      <label>Feedback
+        <select id="flowOutput">
+          <option value="voice">App voice (no screen reader)</option>
+          <option value="screenReader">Screen reader only (NVDA reads it; app stays silent)</option>
+          <option value="both">Both</option>
+        </select>
+      </label>
       <button id="flowStart">Start exam</button>
-      <p id="flowStatus" tabindex="-1">Not started.</p>
-      <p><strong>Last message:</strong> <span id="flowAnnounce" role="status" aria-live="polite"></span></p>
+      <!-- role=application: NVDA switches to focus mode here, so Space and Escape reach the page. -->
+      <div id="flowKeys" role="application" tabindex="-1"
+           aria-label="Exam keys. Press Space to talk, Escape to stop."
+           aria-describedby="flowStatus">
+        <p id="flowStatus">Not started.</p>
+      </div>
+      <p><strong>Last message:</strong> <span id="flowMessage"></span></p>
+      <!-- The ONLY live region for exam messages; empty at load so the screen reader registers it.
+           Assertive alert: every message answers something the student just did. -->
+      <div id="flowLive" role="alert" aria-live="assertive" aria-atomic="true"
+           style="position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap"></div>
+      <button id="srTest">Test screen reader announcement</button>
       <label>Type instead of speaking <input id="flowType" size="40" placeholder="e.g. go back to question two" /></label>
     </fieldset>
 
@@ -49,7 +67,7 @@
       <legend>Circuit (synthetic test data)</legend>
       <label>Circuit <select id="circuit"></select></label>
       <button id="resetFocus">Reset focus</button>
-      <div id="circuitFacts" aria-live="polite"></div>
+      <div id="circuitFacts"></div>
     </fieldset>
 
     <fieldset>
@@ -75,7 +93,8 @@
     </fieldset>
 
     <h2>Log</h2>
-    <div id="log" role="log" aria-live="polite"></div>
+    <!-- Developer log: deliberately NOT a live region, so screen readers do not announce it. -->
+    <div id="log"></div>
 
     <script type="module" src="./harness.ts"></script>
   </body>

@@ -265,3 +265,76 @@ test('stopListening while waiting for TTS cancels without ever opening the mic',
   await tick();
   assert.equal(FakeRecognition.instances.length, 0);
 });
+
+// ---------- long speech and dictation (answer capture) ----------
+
+const results = (...items) => ({
+  results: items.map(([text, isFinal]) => Object.assign([{ transcript: text }], { isFinal })),
+});
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+test('the timeout only counts silence before speech starts: a long answer is not cut off', async () => {
+  const p = listenOnce({ timeoutMs: 20 });
+  const rec = last();
+  rec.onspeechstart();
+  await wait(60); // student keeps talking well past the timeout
+  rec.say('a long answer that takes a while to say');
+  assert.equal(await p, 'a long answer that takes a while to say');
+});
+
+test('dictation keeps listening across pauses and returns everything once the student stops', async () => {
+  const p = listenOnce({ mode: 'dictation', timeoutMs: 50, endSilenceMs: 30 });
+  const rec = last();
+  assert.equal(rec.continuous, true);
+  assert.equal(rec.interimResults, true);
+  rec.onresult(results(['The derivative is', true]));
+  await wait(15); // short pause: shorter than endSilenceMs
+  rec.onresult(results(['The derivative is', true], ['two x', false]));
+  await wait(15);
+  rec.onresult(results(['The derivative is', true], ['two x plus three', true]));
+  assert.equal(await p, 'The derivative is two x plus three');
+});
+
+test('dictation: stopping or an error keeps the words heard in partialTranscript', async () => {
+  let p = listenOnce({ mode: 'dictation', endSilenceMs: 1000 });
+  last().onresult(results(['first part of my answer', true]));
+  stopListening();
+  await assert.rejects(p, (err) => err.code === 'cancelled' && err.partialTranscript === 'first part of my answer');
+
+  p = listenOnce({ mode: 'dictation', endSilenceMs: 1000 });
+  last().onresult(results(['heard so far', true], ['and this', false]));
+  last().onerror({ error: 'network' });
+  await assert.rejects(p, (err) => err.code === 'network' && err.partialTranscript === 'heard so far and this');
+});
+
+test('dictation: the browser ending recognition or a late no-speech returns what was heard', async () => {
+  let p = listenOnce({ mode: 'dictation', endSilenceMs: 1000 });
+  last().onresult(results(['seventeen', true]));
+  last().onend();
+  assert.equal(await p, 'seventeen');
+
+  p = listenOnce({ mode: 'dictation', endSilenceMs: 1000 });
+  last().onresult(results(['nine', true]));
+  last().onerror({ error: 'no-speech' });
+  assert.equal(await p, 'nine');
+
+  p = listenOnce({ mode: 'dictation', endSilenceMs: 1000 });
+  last().onend();
+  await rejectsWith(p, 'no-speech');
+});
+
+test('dictation: the safety cap resolves with what was heard instead of discarding it', async () => {
+  const p = listenOnce({ mode: 'dictation', endSilenceMs: 1000, maxDurationMs: 30 });
+  const rec = last();
+  rec.onspeechstart();
+  rec.onresult(results(['a very long answer', true], ['still going', false]));
+  assert.equal(await p, 'a very long answer still going');
+});
+
+test('command mode is unchanged: one utterance, no interim results', async () => {
+  const p = listenOnce();
+  assert.equal(last().continuous, false);
+  assert.equal(last().interimResults, false);
+  last().say('next');
+  assert.equal(await p, 'next');
+});
