@@ -1,4 +1,4 @@
-import type { Exam, Session } from '../../../contracts/types';
+import type { Exam, MathNotation, MathTranscription, Session } from '../../../contracts/types';
 import { UiError } from './errors';
 import fixture from '../../../fixtures/demo_exam.json';
 
@@ -11,7 +11,8 @@ export interface ExamApi {
   publish(id: string): Promise<Exam>;
   startSession(examId: string): Promise<Session>;
   getSession(id: string): Promise<Session>;
-  saveAnswer(sessionId: string, questionId: string, text: string): Promise<Session>;
+  saveAnswer(sessionId: string, questionId: string, text: string, math?: MathNotation): Promise<Session>;
+  transcribeMath?(sessionId: string, transcript: string, signal: AbortSignal): Promise<MathTranscription>;
   submit(sessionId: string): Promise<Session>;
   getSubmissions(examId: string): Promise<Session[]>;
 }
@@ -19,12 +20,12 @@ export interface ExamApi {
 const examPath = (id: string) => `/exams/${encodeURIComponent(id)}`;
 const sessionPath = (id: string) => `/sessions/${encodeURIComponent(id)}`;
 
-async function request<T>(path: string, method = 'GET', body?: FormData | object): Promise<T> {
+async function request<T>(path: string, method = 'GET', body?: FormData | object, signal?: AbortSignal): Promise<T> {
   const multipart = body instanceof FormData;
   let response: Response;
   try {
     response = await fetch(`/api${path}`, {
-      method,
+      method, signal,
       body: multipart ? body : JSON.stringify(body),
       headers: { Accept: 'application/json', ...(body && !multipart ? { 'Content-Type': 'application/json' } : {}) },
     });
@@ -58,7 +59,10 @@ export const liveApi: ExamApi = {
   publish: id => request(`${examPath(id)}/publish`, 'POST', { approved: true }),
   startSession: id => request(`${examPath(id)}/sessions`, 'POST', {}),
   getSession: id => request(sessionPath(id)),
-  saveAnswer: (id, questionId, text) => request(`${sessionPath(id)}/answers/${encodeURIComponent(questionId)}`, 'PUT', { text }),
+  saveAnswer: (id, questionId, text, math) =>
+    request(`${sessionPath(id)}/answers/${encodeURIComponent(questionId)}`, 'PUT', { text, math }),
+  transcribeMath: (id, transcript, signal) =>
+    request(`${sessionPath(id)}/math-transcription`, 'POST', { transcript }, signal),
   submit: id => request(`${sessionPath(id)}/submit`, 'POST', { confirmed: true }),
   async getSubmissions(id) {
     const result = await request<{ submissions: Session[] }>(`${examPath(id)}/submissions`);

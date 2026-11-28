@@ -1,5 +1,5 @@
 import type { ReactNode, Ref } from 'react';
-import type { Diagram, Question, Session } from '../../../contracts/types';
+import type { Diagram, MathNotation, Question, Session } from '../../../contracts/types';
 import { AnswerList } from './components';
 import { Icon } from './icons';
 import type { VoiceActivity, VoiceOutput } from './voice';
@@ -81,20 +81,30 @@ export function QuestionPanel({ question, index, total, answer, answerStatus, lo
   );
 }
 
-export function ReviewPanel({ confirmation, answer, session, submitMessage, heading, locked, confirm, returnToQuestion, voiceControls }: {
+export function ReviewPanel({ confirmation, answer, session, submitMessage, heading, locked, confirm, returnToQuestion, voiceControls,
+  math, mathMessage, retryMath, confirmDisabled }: {
   confirmation: Exclude<Confirmation, null>; answer: string; session: Session; submitMessage: string; heading: Ref<HTMLHeadingElement>;
   locked: boolean; confirm: () => void; returnToQuestion: () => void; voiceControls: ReactNode;
+  math?: MathNotation; mathMessage?: string; retryMath?: () => void; confirmDisabled?: boolean;
 }) {
   const reviewingAnswer = confirmation === 'answer';
   return (
     <section className="panel review-panel" aria-labelledby="review-heading">
       <h3 id="review-heading" ref={heading} tabIndex={-1}>{reviewingAnswer ? 'Review your answer' : 'Review your submission'}</h3>
       {reviewingAnswer
-        ? <p className="literal receipt" dir="auto"><bdi dir="auto">{answer}</bdi></p>
+        ? <>
+          <p className="literal receipt" dir="auto">{(math || mathMessage) && 'Original transcript: '}<bdi dir="auto">{answer}</bdi></p>
+          {math && <>
+            <p className="literal">LaTeX <code>{math.latex}</code></p>
+            <p>Spoken notation <bdi>{math.spoken}</bdi></p>
+          </>}
+          {mathMessage && <p>{mathMessage}</p>}
+        </>
         : <><p className="submission-message">{submitMessage}</p><AnswerList session={session} /></>}
       <div className="actions">
-        <button type="button" className="primary" disabled={locked} onClick={confirm}>{reviewingAnswer ? 'Confirm answer' : 'Submit exam'}</button>
+        <button type="button" className="primary" disabled={locked || (reviewingAnswer && confirmDisabled)} onClick={confirm}>{reviewingAnswer ? 'Confirm answer' : 'Submit exam'}</button>
         <button type="button" disabled={locked} onClick={returnToQuestion}>{reviewingAnswer ? 'Edit answer' : 'Return to questions'}</button>
+        {reviewingAnswer && retryMath && <button type="button" disabled={locked} onClick={retryMath}>Dictate expression again</button>}
       </div>
       {voiceControls}
     </section>
@@ -121,9 +131,9 @@ export function SessionPanel({ answered, questions, current, selectQuestion, loc
   );
 }
 
-export function VoiceControls({ available, activity, busy, keyboardOnly, reviewing, output, setOutput, dictate, read, listen, stop, retry }: {
+export function VoiceControls({ available, activity, busy, keyboardOnly, reviewing, output, setOutput, dictate, dictateMath, read, listen, stop, retry }: {
   available: boolean; activity?: VoiceActivity; busy: boolean; keyboardOnly: boolean; reviewing: boolean;
-  output: VoiceOutput; setOutput: (output: VoiceOutput) => void; dictate: () => void; read: () => void;
+  output: VoiceOutput; setOutput: (output: VoiceOutput) => void; dictate: () => void; dictateMath?: () => void; read: () => void;
   listen: () => void; stop: () => void; retry: () => void;
 }) {
   if (!available) return null;
@@ -131,6 +141,7 @@ export function VoiceControls({ available, activity, busy, keyboardOnly, reviewi
   return (
     <div className="voice-panel">
       {!reviewing && !keyboardOnly && <button type="button" aria-disabled={locked} onClick={() => { if (!locked) dictate(); }}><Icon name="microphone" /> Dictate answer</button>}
+      {!reviewing && !keyboardOnly && dictateMath && <button type="button" aria-disabled={locked} onClick={() => { if (!locked) dictateMath(); }}><Icon name="microphone" /> Dictate math</button>}
       {activity && <button type="button" disabled={busy} onClick={stop}>Stop voice</button>}
       <details>
         <summary>Voice commands and settings</summary>

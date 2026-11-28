@@ -7,7 +7,7 @@ from typing import Literal
 from uuid import uuid4
 
 from fastapi import HTTPException
-from typing_extensions import TypedDict
+from typing_extensions import NotRequired, TypedDict
 
 from .exams import Exam, InvalidDraft, validate_for_publication
 
@@ -25,6 +25,7 @@ class Session(TypedDict):
     id: str
     exam: Exam
     answers: dict[str, str]
+    math_answers: NotRequired[dict[str, dict[str, str]]]
     status: Literal["active", "submitted"]
 
 
@@ -83,12 +84,19 @@ class ExamStore:
         with self._lock:
             return deepcopy(self._session(session_id))
 
-    def save_answer(self, session_id: str, question_id: str, text: str) -> Session:
+    def save_answer(self, session_id: str, question_id: str, text: str, math: dict[str, str] | None = None) -> Session:
         with self._lock:
             session = self._active_session(session_id)
             if not any(question["id"] == question_id for question in session["exam"]["questions"]):
                 raise HTTPException(404, "Question ID was not found.")
             session["answers"][question_id] = text
+            if math is not None:
+                session.setdefault("math_answers", {})[question_id] = math
+            elif "math_answers" in session:
+                math_answers = session["math_answers"]
+                math_answers.pop(question_id, None)
+                if not math_answers:
+                    del session["math_answers"]
             return deepcopy(session)
 
     def submit(self, session_id: str) -> Session:

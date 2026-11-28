@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { UiError } from './errors';
-import type { Session } from '../../../contracts/types';
+import type { MathTranscription, Session } from '../../../contracts/types';
 import type { ExamApi } from './api';
 import { AnswerList, WorkspaceIntro, confirmedAnswer } from './components';
 import { QuestionPanel, ReviewPanel, SessionPanel, VoiceControls } from './StudentPanels';
@@ -28,12 +28,21 @@ type StudentProps = {
   openAccessibility: (trigger: HTMLButtonElement) => void;
 };
 
+type MathReview = MathTranscription | { status: 'unavailable'; message: string };
+
+function mathReviewMessage(result: MathReview | undefined) {
+  if (result?.status === 'ambiguous') return `${result.clarification} Dictate the full expression again.`;
+  if (result?.status === 'rejected') return 'Only mathematical transcription is available. Dictate your expression again.';
+  if (result?.status === 'unavailable') return `${result.message} You can retry or confirm the original transcript.`;
+}
+
 export default function Student({ api, suggestedExamId, visible, onSessionActive, openAccessibility }: StudentProps) {
   const [enteredId, setEnteredId] = useState<string>();
   const [checkingMicrophone, setCheckingMicrophone] = useState(false);
   const [session, setSession] = useState<Session>();
   const [index, setIndex] = useState(0);
   const [drafts, setDrafts] = useState(() => new Map<string, string>());
+  const [mathReviews, setMathReviews] = useState(() => new Map<string, MathReview>());
   const [confirmation, setConfirmation] = useState<Confirmation>(null);
   const [status, setStatus] = useState<string>();
   const { busy, pending, error, run } = useRequest();
@@ -74,9 +83,17 @@ export default function Student({ api, suggestedExamId, visible, onSessionActive
   const question = questions[index];
   const saved = question ? confirmedAnswer(session, question.id) : undefined;
   const answer = question ? drafts.get(question.id) ?? saved ?? '' : '';
+  const mathReview = question ? mathReviews.get(question.id) : undefined;
+  const mathNotation = mathReview?.status === 'ok' ? mathReview : undefined;
+  const mathMessage = mathReviewMessage(mathReview);
+  const mathNeedsRetry = mathReview?.status === 'ambiguous' || mathReview?.status === 'rejected';
+  const canDictateMath = Boolean(api.transcribeMath && question && question.type !== 'mcq');
   const questionStates = questions.map(item => {
     const confirmed = confirmedAnswer(session, item.id);
-    return { confirmed: confirmed !== undefined, edited: drafts.has(item.id) && drafts.get(item.id) !== (confirmed ?? '') };
+    return {
+      confirmed: confirmed !== undefined,
+      edited: mathReviews.get(item.id)?.status === 'ok' || (drafts.has(item.id) && drafts.get(item.id) !== (confirmed ?? '')),
+    };
   });
   const answerStatus = questionStates[index]?.edited ? 'Unconfirmed edit' : saved === undefined ? 'Awaiting a confirmed answer' : 'Answer confirmed';
   const answered = questionStates.filter(item => item.confirmed).length;
@@ -92,6 +109,16 @@ export default function Student({ api, suggestedExamId, visible, onSessionActive
   function updateAnswer(id: string, text: string) {
     editHistory.current.get(id)?.replaceAll(text);
     setDrafts(current => new Map(current).set(id, text));
+    clearMathReview(id);
+  }
+
+  function clearMathReview(id: string) {
+    setMathReviews(current => {
+      if (!current.has(id)) return current;
+      const next = new Map(current);
+      next.delete(id);
+      return next;
+    });
   }
 
   function startExam() {
@@ -123,17 +150,19 @@ export default function Student({ api, suggestedExamId, visible, onSessionActive
   }
 
   function saveAnswer(onSaved?: () => Promise<void>) {
-    if (!session || !question || confirmation !== 'answer' || !answer.trim()) return;
+    if (!session || !question || confirmation !== 'answer' || !answer.trim() || mathNeedsRetry) return;
     return run('Saving your answer…', async () => {
       voice.clear();
       setStatus(undefined);
-      setSession(checkSession(await api.saveAnswer(session.id, question.id, answer), 'active', session.id));
+      const notation = mathNotation && { latex: mathNotation.latex, spoken: mathNotation.spoken };
+      setSession(checkSession(await api.saveAnswer(session.id, question.id, answer, notation), 'active', session.id));
       setDrafts(current => {
         const next = new Map(current);
         next.delete(question.id);
         return next;
       });
       editHistory.current.delete(question.id);
+      clearMathReview(question.id);
       setConfirmation(null);
       setStatus(`Answer confirmed for question ${index + 1}.`);
       await onSaved?.();
@@ -156,6 +185,7 @@ export default function Student({ api, suggestedExamId, visible, onSessionActive
       }
       setSession(submitted);
       setDrafts(new Map());
+      setMathReviews(new Map());
       editHistory.current.clear();
       setConfirmation(null);
       onSessionActive(false);
@@ -229,28 +259,50 @@ export default function Student({ api, suggestedExamId, visible, onSessionActive
     return voice.speak(api, message);
   }
 
-  async function dictate(api: VoiceApi, isCurrent: () => boolean) {
+  async function dictate(voiceApi: VoiceApi, isCurrent: () => boolean, signal: AbortSignal, math = false) {
     const id = question.id;
-    if (!editHistory.current.has(id)) editHistory.current.set(id, new api.AnswerDraft(answer));
+    if (!editHistory.current.has(id)) editHistory.current.set(id, new voiceApi.AnswerDraft(answer));
+    let transcript: string;
     try {
-      const transcript = await voice.listen(api, 'dictation');
-      if (isCurrent()) await startReview(api, transcript);
+      transcript = await voice.listen(voiceApi, 'dictation');
     } catch (failure) {
-      const partial = api.isVoiceError(failure) ? failure.partialTranscript : undefined;
+      const partial = voiceApi.isVoiceError(failure) ? failure.partialTranscript : undefined;
       if (partial?.trim()) {
         if (isCurrent()) {
-          await startReview(api, partial, `${api.recoveryPrompt(failure)} ${api.prompts.readBack(partial)}`);
+          await startReview(voiceApi, partial, `${voiceApi.recoveryPrompt(failure)} ${voiceApi.prompts.readBack(partial)}`);
         } else {
           updateAnswer(id, partial);
-          setStatus(api.prompts.draftKept);
+          setStatus(voiceApi.prompts.draftKept);
         }
       } else if (isCurrent()) {
         throw failure;
       }
+      return;
     }
+    if (!isCurrent()) return;
+    if (!math || !api.transcribeMath || !session) {
+      await startReview(voiceApi, transcript);
+      return;
+    }
+
+    updateAnswer(id, transcript);
+    setConfirmation('answer');
+    voice.processing('Formatting your dictated expression…');
+    let result: MathReview;
+    try {
+      result = await api.transcribeMath(session.id, transcript, signal);
+    } catch (failure) {
+      if (!isCurrent()) return;
+      result = { status: 'unavailable', message: failure instanceof UiError ? failure.message : 'Math transcription is unavailable.' };
+    }
+    if (!isCurrent()) return;
+    setMathReviews(current => new Map(current).set(id, result));
+    await voice.speak(voiceApi, result.status === 'ok'
+      ? `Interpreted expression. ${result.spoken} Say confirm to save it, or dictate the expression again.`
+      : mathReviewMessage(result) ?? '');
   }
 
-  async function command(api: VoiceApi, isCurrent: () => boolean) {
+  async function command(api: VoiceApi, isCurrent: () => boolean, signal: AbortSignal) {
     const transcript = await voice.listen(api, 'command');
     if (!isCurrent()) return;
     const say = (text: string) => voice.speak(api, text);
@@ -265,9 +317,13 @@ export default function Student({ api, suggestedExamId, visible, onSessionActive
       await readQuestion(api, position, position !== index);
     };
     const keepAnswer = async () => {
+      if (mathNeedsRetry) return say(mathMessage ?? '');
       if (!questionStates[index]?.edited || !answer.trim()) return say(api.prompts.nothingToConfirm);
       if (confirmation === 'answer') await saveAnswer(() => say(api.prompts.saved(index)));
-      else await startReview(api, answer);
+      else if (mathNotation) {
+        setConfirmation('answer');
+        await say(mathNotation.spoken);
+      } else await startReview(api, answer);
     };
     const readSubmission = () => api.prompts.submitConfirm(answered, questions.length,
       questionStates.flatMap((state, position) => state.edited ? [position + 1] : []));
@@ -281,6 +337,12 @@ export default function Student({ api, suggestedExamId, visible, onSessionActive
         await say(api.prompts.submitCancelled);
       } else if (parsed.type === 'repeat') await say(readSubmission());
       else await say(api.prompts.submitReminder);
+      return;
+    }
+
+    if (canDictateMath && /^dictate (?:math|(?:the )?expression)(?: again)?[.!?]*$/i.test(transcript.trim())) {
+      await say(api.prompts.dictationStart);
+      if (isCurrent()) await dictate(api, isCurrent, signal, true);
       return;
     }
 
@@ -313,14 +375,18 @@ export default function Student({ api, suggestedExamId, visible, onSessionActive
             return;
           }
           const unsaved = drafts.get(item.id);
-          await (stateAt(position) === 'draft' && unsaved !== undefined
-            ? say(api.prompts.draftAnswer(position, unsaved))
-            : say(api.prompts.savedAnswer(position, confirmedAnswer(session, item.id))));
+          const dictated = mathReviews.get(item.id);
+          if (stateAt(position) === 'draft' && unsaved !== undefined) {
+            await say(dictated?.status === 'ok' ? dictated.spoken : api.prompts.draftAnswer(position, unsaved));
+          } else {
+            const savedNotation = session?.math_answers?.[item.id];
+            await say(savedNotation?.spoken ?? api.prompts.savedAnswer(position, confirmedAnswer(session, item.id)));
+          }
           return;
         }
         case 'time': await say(api.prompts.timeUnavailable); return;
         case 'help': await say(api.prompts.help); return;
-        case 'redictate': await say(api.prompts.dictationStart); if (isCurrent()) await dictate(api, isCurrent); return;
+        case 'redictate': await say(api.prompts.dictationStart); if (isCurrent()) await dictate(api, isCurrent, signal, canDictateMath && (question.type === 'math' || Boolean(mathReview))); return;
         case 'saveAnswer': await keepAnswer(); return;
         case 'selectOption': {
           const position = api.matchOption(question, nav.choice);
@@ -354,6 +420,7 @@ export default function Student({ api, suggestedExamId, visible, onSessionActive
           const history = editHistory.current.get(question.id) ?? new api.AnswerDraft(answer);
           editHistory.current.set(question.id, history);
           history.replaceAll(saved ?? '');
+          clearMathReview(question.id);
           setDrafts(current => {
             const next = new Map(current);
             next.delete(question.id);
@@ -367,12 +434,12 @@ export default function Student({ api, suggestedExamId, visible, onSessionActive
         }
         return;
       case 'repeat':
-        if (confirmation === 'answer') await say(api.prompts.readBack(answer));
+        if (confirmation === 'answer') await say(mathNotation?.spoken ?? mathMessage ?? api.prompts.readBack(answer));
         else await readQuestion(api, index);
         return;
       case 'next': await moveTo(index + 1); return;
       case 'previous': await moveTo(index - 1); return;
-      case 'dictate': await say(api.prompts.dictationStart); if (isCurrent()) await dictate(api, isCurrent); return;
+      case 'dictate': await say(api.prompts.dictationStart); if (isCurrent()) await dictate(api, isCurrent, signal, canDictateMath && question.type === 'math'); return;
       case 'submit': setConfirmation('submit'); await say(readSubmission()); return;
       case 'explore': await say(getExplorer(api).ask(parsed.query)); return;
       case 'unknown': await say('I can navigate the exam, take dictation, or read approved circuit facts. Say help for commands.'); return;
@@ -383,6 +450,10 @@ export default function Student({ api, suggestedExamId, visible, onSessionActive
     void voice.run('Preparing to read aloud…', api => voice.speak(api, message(api)));
   }
 
+  function startMathDictation() {
+    void voice.run('Preparing to dictate math…', (api, isCurrent, signal) => dictate(api, isCurrent, signal, true));
+  }
+
   const voiceControls = <VoiceControls available={voice.available} activity={voice.activity}
     busy={busy} keyboardOnly={voice.keyboardOnly} reviewing={Boolean(confirmation)}
     output={output} setOutput={next => {
@@ -390,10 +461,11 @@ export default function Student({ api, suggestedExamId, visible, onSessionActive
       setOutput(next);
     }}
     dictate={() => void voice.run('Preparing to dictate…', dictate)}
+    dictateMath={canDictateMath ? startMathDictation : undefined}
     read={() => confirmation ? readAloud(api => confirmation === 'answer'
-      ? api.readBackText(answer)
+      ? mathNotation?.spoken ?? mathMessage ?? api.readBackText(answer)
       : [submitMessage, ...questions.map((item, position) =>
-          `Question ${position + 1}. ${api.readBackText(confirmedAnswer(session, item.id) ?? 'Unanswered.')}`)].join(' '))
+          `Question ${position + 1}. ${session?.math_answers?.[item.id]?.spoken ?? api.readBackText(confirmedAnswer(session, item.id) ?? 'Unanswered.')}`)].join(' '))
       : void voice.run('Preparing question…', async api => { await readQuestion(api, index); })}
     listen={() => void voice.run('Preparing voice controls…', command)} stop={stopVoice} retry={voice.retry} />;
 
@@ -444,6 +516,8 @@ export default function Student({ api, suggestedExamId, visible, onSessionActive
         <div className="student-layout">
           {confirmation ? (
             <ReviewPanel confirmation={confirmation} answer={answer} session={session} submitMessage={submitMessage} heading={heading}
+              math={mathNotation} mathMessage={mathMessage} confirmDisabled={mathNeedsRetry}
+              retryMath={mathReview && voice.available && !voice.keyboardOnly ? startMathDictation : undefined}
               locked={locked} confirm={() => { void (confirmation === 'answer' ? saveAnswer() : submitExam()); }} returnToQuestion={() => {
                 voice.clear();
                 cancelReview();
