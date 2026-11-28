@@ -70,9 +70,8 @@ a { color: var(--accent-hover); text-underline-offset: .2em; }
   min-height: 4.75rem;
   padding-block: .6rem;
 }
-.brand { display: flex; align-items: center; gap: .62rem; min-width: 0; }
-.brand-mark { width: 2.35rem; height: 2.35rem; flex: none; }
-.brand h1 { font-size: calc(1.45rem * var(--studio-text-scale)); letter-spacing: var(--studio-letter, -.045em); }
+.brand { min-width: 0; max-width: 100%; }
+.brand-mark { display: block; width: 16rem; max-width: 100%; height: auto; }
 .workspace-nav { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 .workspace-nav button { border-color: transparent; background: transparent; color: var(--muted); }
 .workspace-nav button[aria-current] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-hover); }
