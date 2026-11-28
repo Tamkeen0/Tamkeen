@@ -9,12 +9,15 @@ JSON UTF-8; all IDs strings; HTTP 400 malformed, 404 unknown, 409 illegal state.
 | POST /api/exams/{id}/publish | {"approved":true} | Exam (published); reject unresolved needs_review |
 | POST /api/exams/{id}/sessions | {} | 201 Session, published exam only |
 | GET /api/sessions/{id} | none | Session |
-| PUT /api/sessions/{id}/answers/{question_id} | {"text":"literal confirmed answer"} | Session (idempotent overwrite) |
+| POST /api/sessions/{id}/math-transcription | {"transcript":"one dictated expression"} | {"status":"ok, ambiguous, or rejected","latex":null,"spoken":null,"clarification":null} with text in the fields relevant to the status |
+| PUT /api/sessions/{id}/answers/{question_id} | {"text":"literal confirmed answer"} and optional `math` object with `latex` and `spoken` | Session (idempotent overwrite) |
 | POST /api/sessions/{id}/submit | {"confirmed":true} | Session (submitted, immutable) |
 | GET /api/exams/{id}/submissions | none | {"submissions":[Session,...]} |
 | GET /api/health | none | {"ok":true} |
 
-Session: {id: string, exam: Exam, answers: Record<string,string>, status: "active"|"submitted"}. Answers stored verbatim, including math dictation; optional formatting never changes meaning. Unanswered questions allowed after explicit confirmation. Backend rejects updates after submission. Errors: {"detail":"message"} (FastAPI validation detail may be array). No live AI assistant endpoint. Use mock data until endpoints available. The UI has a professor mode and student mode, not production authentication. Do not expose actual confidential exams.
+Session: {id: string, exam: Exam, answers: Record<string,string>, status: "active"|"submitted"}. Answers are stored verbatim. `math_answers` is optional and maps question IDs to confirmed `{latex, spoken}` representations. Replacing an answer without `math` removes any previously confirmed math notation for that question. Unanswered questions are allowed after explicit confirmation. The backend rejects updates after submission. Errors use `{"detail":"message"}` (FastAPI validation detail may be an array). The UI has professor and student modes with prototype access controls. Do not expose actual confidential exams.
+
+Math transcription requires an active session. A successful result includes `latex` and `spoken`. An ambiguous result includes only `clarification`, and a rejected result includes no text fields. The endpoint has no effect on saved answers. It forwards the transcript alone to the server-configured model. The UI holds interpretations for review and attaches notation to the original answer only when the student confirms.
 
 Python document module public interface: `from document_engine import extract_exam`; `extract_exam(pdf_bytes: bytes) -> dict` returns draft Exam conforming to schema. Raise ValueError for invalid PDF, RuntimeError for unavailable extraction. Provider key from environment. No provider key in frontend. Warnings must describe uncertainty; review is mandatory for every upload, even if needs_review false.
 

@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Body, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
 
 from .exams import (
     Exam,
@@ -17,6 +17,7 @@ from .exams import (
     validate_draft,
 )
 from .store import ExamStore, Session, normalize_exam_id
+from .math_transcription import MAX_OUTPUT, MAX_TRANSCRIPT, TranscriptionError, transcribe_math
 
 MAX_PDF_BYTES = 10 * 1024 * 1024
 
@@ -33,8 +34,18 @@ class StartBody(RequestBody):
     pass
 
 
+class MathNotationBody(RequestBody):
+    latex: Annotated[StrictStr, Field(min_length=1, max_length=MAX_OUTPUT)]
+    spoken: Annotated[StrictStr, Field(min_length=1, max_length=MAX_OUTPUT)]
+
+
 class AnswerBody(RequestBody):
     text: StrictStr
+    math: MathNotationBody | None = None
+
+
+class MathTranscriptionBody(RequestBody):
+    transcript: Annotated[StrictStr, Field(min_length=1, max_length=MAX_TRANSCRIPT)]
 
 
 class SubmitBody(RequestBody):
@@ -119,7 +130,16 @@ def create_app(*, extractor: Extractor | None = None) -> FastAPI:
 
     @api.put("/sessions/{session_id}/answers/{question_id:path}")
     def save_answer(session_id: str, question_id: str, body: AnswerBody) -> Session:
-        return store.save_answer(session_id, question_id, body.text)
+        return store.save_answer(session_id, question_id, body.text, body.math.model_dump() if body.math else None)
+
+    @api.post("/sessions/{session_id}/math-transcription")
+    def math_transcription(session_id: str, body: MathTranscriptionBody) -> dict[str, str | None]:
+        if store.get_session(session_id)["status"] != "active":
+            raise HTTPException(409, "This session has already been submitted.")
+        try:
+            return transcribe_math(body.transcript)
+        except TranscriptionError as error:
+            raise HTTPException(error.status_code, str(error)) from error
 
     @api.post("/sessions/{session_id}/submit")
     def submit_session(session_id: str, body: SubmitBody) -> Session:

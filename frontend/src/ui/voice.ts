@@ -78,7 +78,7 @@ export interface VoiceApi {
 const modules = import.meta.glob<VoiceApi>('../voice/index.ts');
 const loadVoice = modules['../voice/index.ts'];
 
-type VoiceTask = { api?: VoiceApi; stopped: boolean };
+type VoiceTask = { api?: VoiceApi; stopped: boolean; controller: AbortController };
 export type VoiceActivity = { phase: 'preparing' | 'listening' | 'speaking' | 'processing'; label: string };
 
 export function useVoice(visible: boolean, output: VoiceOutput) {
@@ -94,6 +94,7 @@ export function useVoice(visible: boolean, output: VoiceOutput) {
     const current = task.current;
     if (!current || current.stopped) return false;
     current.stopped = true;
+    current.controller.abort();
     current.api?.stopListening();
     current.api?.stopSpeaking();
     return true;
@@ -133,9 +134,9 @@ export function useVoice(visible: boolean, output: VoiceOutput) {
     }
   }
 
-  async function run(pending: string, action: (api: VoiceApi, isCurrent: () => boolean) => Promise<void>) {
+  async function run(pending: string, action: (api: VoiceApi, isCurrent: () => boolean, signal: AbortSignal) => Promise<void>) {
     if (!loadVoice || !visible || task.current) return;
-    const current: VoiceTask = { stopped: false };
+    const current: VoiceTask = { stopped: false, controller: new AbortController() };
     const trigger = document.activeElement;
     const nearbyControls = trigger?.closest('.voice-panel');
     task.current = current;
@@ -146,7 +147,7 @@ export function useVoice(visible: boolean, output: VoiceOutput) {
       const api = await loadVoice();
       if (!isCurrent()) return;
       current.api = api;
-      await action(api, isCurrent);
+      await action(api, isCurrent, current.controller.signal);
     } catch (failure) {
       if (isCurrent()) {
         if (current.api?.needsKeyboardFallback(failure)) setKeyboardOnly(true);
@@ -186,5 +187,6 @@ export function useVoice(visible: boolean, output: VoiceOutput) {
   return {
     available: Boolean(loadVoice), activity, announcement, result, error, keyboardOnly, lastMessage,
     clear, listen, run, speak, stop, retry: () => setKeyboardOnly(false),
+    processing: (label: string) => setActivity({ phase: 'processing', label }),
   };
 }

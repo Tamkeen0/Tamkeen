@@ -27,3 +27,11 @@ python -m unittest discover -s backend -p 'test_*.py'
 ```
 
 For a browser check, run the existing Vite frontend and FastAPI together. In **Real API**, upload a synthetic PDF, review and publish the draft, start a session with its ID, confirm an answer, submit, and load the results in Professor. Repeat in document mode once the extraction implementation is available.
+
+## Math dictation
+
+Set `GROQ_API_KEY` in the backend process environment before starting Uvicorn. `GROQ_MODEL` is optional and defaults to `openai/gpt-oss-20b`. Use a Groq Free Plan key for the demo. The application sends one expression per request and shares only the transcript, with no question, stored answer, or tool access.
+
+For a synthetic demo, start FastAPI in fixture mode and choose **Real API** in the frontend. Upload a synthetic PDF, approve and publish the fixture, then start its student session. On the math or circuit question, choose **Dictate math** or say “dictate math” in a voice-command turn. Review the original transcript, LaTeX, and spoken notation before confirming. Try “X plus Y over Z” to exercise clarification and then dictate the full expression again with explicit grouping. The original transcript remains available for confirmation when the provider fails.
+
+The backend test suite uses mocked responses. To also run the live examples against a configured Groq account, set `TAMKEEN_TEST_LIVE_GROQ=1` before running `python -m unittest backend.test_math_transcription`. Use synthetic expressions. The service validates structure and rejects common direct assistance requests. The student still needs to verify that the interpretation faithfully represents their speech.

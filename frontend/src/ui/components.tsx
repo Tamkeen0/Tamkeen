@@ -47,10 +47,15 @@ export function AnswerList({ session, showQuestionText = false }: { session: Ses
     <dl className="answer-list">
       {session.exam.questions.map((question, index) => {
         const answer = confirmedAnswer(session, question.id);
+        const math = session.math_answers?.[question.id];
         return (
           <div key={question.id}>
             <dt>{showQuestionText ? <>{index + 1}. <bdi>{question.text}</bdi></> : `Question ${index + 1}`}</dt>
             <dd className="literal">{answer === undefined ? 'Unanswered' : <bdi>{answer}</bdi>}</dd>
+            {math && <>
+              <dd className="literal">LaTeX <code>{math.latex}</code></dd>
+              <dd>Spoken notation <bdi>{math.spoken}</bdi></dd>
+            </>}
           </div>
         );
       })}
