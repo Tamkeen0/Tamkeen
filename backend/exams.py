@@ -7,6 +7,9 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
+from . import ai_structuring
+from .math_transcription import log
+
 Exam = dict[str, Any]
 Extractor = Callable[[bytes], Exam]
 
@@ -56,12 +59,60 @@ def validate_for_publication(exam: Exam) -> None:
                 raise InvalidDraft(f"{label} has a component terminal that does not match a listed circuit node.")
 
 
+class UnreadablePdf(ValueError):
+    """The PDF itself cannot be used. The message tells the professor what to change."""
+
+
+# Document-engine errors caused by the uploaded file, mapped to what the professor should do.
+_PDF_PROBLEMS = (
+    ("no digital text",
+     "This PDF has a page with no selectable text, such as a scan or a photo. Upload a PDF exported from "
+     "Word or Google Docs, or run text recognition (OCR) on the scan first."),
+    ("No numbered questions",
+     "No numbered questions were found. Start each question with a number such as \"1.\" or \"Question 1:\", "
+     "put each choice on its own line such as \"A. ...\", and use a single-column layout."),
+    ("encrypted, damaged, or empty",
+     "The PDF is password-protected, damaged, or empty. Remove the password or export the PDF again."),
+    ("Could not open the PDF", "The file could not be opened as a PDF. Export it again as a standard PDF."),
+    ("Could not read the PDF pages", "The PDF's pages could not be read. Export it again as a standard PDF."),
+    ("Could not extract text and figures",
+     "The PDF's pages could not be read. Export it again as a standard PDF."),
+    ("validate the extracted exam",
+     "The questions were read but do not fit the supported layout: a single column, numbered questions, "
+     "and lettered choices on their own lines. Adjust the layout and upload again."),
+)
+
+
 def extract_document(pdf_bytes: bytes) -> Exam:
     try:
         from document_engine import extract_exam
     except ImportError as error:
         raise RuntimeError("Document extraction is unavailable.") from error
-    return extract_exam(pdf_bytes)
+    try:
+        return extract_exam(pdf_bytes)
+    except (ValueError, RuntimeError) as error:
+        if "No numbered questions" in str(error) and ai_structuring.enabled():
+            return _split_with_ai(pdf_bytes, error)
+        for marker, explanation in _PDF_PROBLEMS:
+            if marker in str(error):
+                raise UnreadablePdf(explanation) from error
+        raise
+
+
+def _pdf_text(pdf_bytes: bytes) -> str:
+    import pymupdf
+
+    with pymupdf.open(stream=pdf_bytes, filetype="pdf") as document:
+        return "\n".join(page.get_text() for page in document)
+
+
+def _split_with_ai(pdf_bytes: bytes, original: Exception) -> Exam:
+    try:
+        return ai_structuring.structure_exam(_pdf_text(pdf_bytes))
+    except ai_structuring.TranscriptionError as failure:
+        log.warning("AI question splitting failed: %s", failure.detail)
+        explanation = dict(_PDF_PROBLEMS)["No numbered questions"]
+        raise UnreadablePdf(f"{explanation} AI question splitting was also tried but failed.") from original
 
 
 def extract_fixture(_pdf_bytes: bytes) -> Exam:

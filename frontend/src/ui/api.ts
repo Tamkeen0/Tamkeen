@@ -13,6 +13,7 @@ export interface ExamApi {
   getSession(id: string): Promise<Session>;
   saveAnswer(sessionId: string, questionId: string, text: string, math?: MathNotation): Promise<Session>;
   transcribeMath?(sessionId: string, transcript: string, signal: AbortSignal): Promise<MathTranscription>;
+  mathTranscriptionAvailable?(): Promise<boolean>;
   submit(sessionId: string): Promise<Session>;
   getSubmissions(examId: string): Promise<Session[]>;
 }
@@ -63,6 +64,10 @@ export const liveApi: ExamApi = {
     request(`${sessionPath(id)}/answers/${encodeURIComponent(questionId)}`, 'PUT', { text, math }),
   transcribeMath: (id, transcript, signal) =>
     request(`${sessionPath(id)}/math-transcription`, 'POST', { transcript }, signal),
+  async mathTranscriptionAvailable() {
+    const health = await request<{ math_transcription?: boolean }>('/health');
+    return health.math_transcription === true;
+  },
   submit: id => request(`${sessionPath(id)}/submit`, 'POST', { confirmed: true }),
   async getSubmissions(id) {
     const result = await request<{ submissions: Session[] }>(`${examPath(id)}/submissions`);

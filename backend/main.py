@@ -1,6 +1,7 @@
 """FastAPI implementation of contracts/API.md."""
 
 import os
+from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import APIRouter, Body, FastAPI, File, HTTPException, Request, UploadFile
@@ -12,12 +13,22 @@ from .exams import (
     Exam,
     Extractor,
     InvalidDraft,
+    UnreadablePdf,
     extract_document,
     extract_fixture,
     validate_draft,
 )
+from . import ai_structuring
 from .store import ExamStore, Session, normalize_exam_id
-from .math_transcription import MAX_OUTPUT, MAX_TRANSCRIPT, TranscriptionError, transcribe_math
+from .math_transcription import (
+    MAX_OUTPUT,
+    MAX_TRANSCRIPT,
+    TranscriptionError,
+    is_configured,
+    log as math_log,
+    status_line,
+    transcribe_math,
+)
 
 MAX_PDF_BYTES = 10 * 1024 * 1024
 
@@ -62,7 +73,13 @@ def create_app(*, extractor: Extractor | None = None) -> FastAPI:
         else:
             raise ValueError("TAMKEEN_EXTRACTOR must be document or fixture.")
 
-    app = FastAPI(title="Tamkeen")
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        math_log.info(status_line())
+        math_log.info(ai_structuring.status_line())
+        yield
+
+    app = FastAPI(title="Tamkeen", lifespan=lifespan)
     api = APIRouter(prefix="/api")
     store = ExamStore()
 
@@ -76,7 +93,8 @@ def create_app(*, extractor: Extractor | None = None) -> FastAPI:
 
     @api.get("/health")
     def health() -> dict[str, bool]:
-        return {"ok": True}
+        # The student UI offers "Dictate math" only when this is true.
+        return {"ok": True, "math_transcription": is_configured()}
 
     @api.post("/exams", status_code=201)
     def upload_exam(file: Annotated[UploadFile, File()]) -> Exam:
@@ -89,10 +107,17 @@ def create_app(*, extractor: Extractor | None = None) -> FastAPI:
 
         try:
             extracted = extractor(pdf)
+        except UnreadablePdf as error:
+            math_log.warning("PDF upload rejected: %s", error.__cause__ or error)
+            raise HTTPException(400, str(error)) from error
         except ValueError as error:
+            math_log.warning("PDF upload rejected: %s", error)
             raise HTTPException(400, "The document engine could not read that PDF.") from error
         except RuntimeError as error:
-            raise HTTPException(503, "Document extraction is unavailable. Check the document engine setup.") from error
+            math_log.warning("PDF extraction failed: %s", error)
+            raise HTTPException(
+                503, "Document extraction is unavailable. The cause is shown in the backend terminal."
+            ) from error
 
         try:
             validate_draft(extracted)

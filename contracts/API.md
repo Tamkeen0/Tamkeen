@@ -13,7 +13,7 @@ JSON UTF-8; all IDs strings; HTTP 400 malformed, 404 unknown, 409 illegal state.
 | PUT /api/sessions/{id}/answers/{question_id} | {"text":"literal confirmed answer"} and optional `math` object with `latex` and `spoken` | Session (idempotent overwrite) |
 | POST /api/sessions/{id}/submit | {"confirmed":true} | Session (submitted, immutable) |
 | GET /api/exams/{id}/submissions | none | {"submissions":[Session,...]} |
-| GET /api/health | none | {"ok":true} |
+| GET /api/health | none | {"ok":true,"math_transcription":bool} (true when the server can format dictated math; the student UI offers math dictation only then) |
 
 Session: {id: string, exam: Exam, answers: Record<string,string>, status: "active"|"submitted"}. Answers are stored verbatim. `math_answers` is optional and maps question IDs to confirmed `{latex, spoken}` representations. Replacing an answer without `math` removes any previously confirmed math notation for that question. Unanswered questions are allowed after explicit confirmation. The backend rejects updates after submission. Errors use `{"detail":"message"}` (FastAPI validation detail may be an array). The UI has professor and student modes with prototype access controls. Do not expose actual confidential exams.
 

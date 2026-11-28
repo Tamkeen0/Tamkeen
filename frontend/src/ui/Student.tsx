@@ -40,6 +40,7 @@ export default function Student({ api, suggestedExamId, visible, onSessionActive
   const [enteredId, setEnteredId] = useState<string>();
   const [checkingMicrophone, setCheckingMicrophone] = useState(false);
   const [session, setSession] = useState<Session>();
+  const [mathAvailable, setMathAvailable] = useState(false);
   const [index, setIndex] = useState(0);
   const [drafts, setDrafts] = useState(() => new Map<string, string>());
   const [mathReviews, setMathReviews] = useState(() => new Map<string, MathReview>());
@@ -87,7 +88,7 @@ export default function Student({ api, suggestedExamId, visible, onSessionActive
   const mathNotation = mathReview?.status === 'ok' ? mathReview : undefined;
   const mathMessage = mathReviewMessage(mathReview);
   const mathNeedsRetry = mathReview?.status === 'ambiguous' || mathReview?.status === 'rejected';
-  const canDictateMath = Boolean(api.transcribeMath && question && question.type !== 'mcq');
+  const canDictateMath = Boolean(mathAvailable && api.transcribeMath && question && question.type !== 'mcq');
   const questionStates = questions.map(item => {
     const confirmed = confirmedAnswer(session, item.id);
     return {
@@ -127,6 +128,8 @@ export default function Student({ api, suggestedExamId, visible, onSessionActive
       onSessionActive(true);
       try {
         const started = checkSession(await api.startSession(examId.trim()), 'active');
+        // Offer math dictation only when the server can actually format math.
+        setMathAvailable(await (api.mathTranscriptionAvailable?.().catch(() => false) ?? false));
         setIndex(0);
         setSession(started);
         setStatus('Exam started.');
