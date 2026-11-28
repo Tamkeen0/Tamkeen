@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import AccessibilityStudio from './AccessibilityStudio';
 import type { AccessibilityStudioHandle } from './AccessibilityStudio';
 import { createMockApi, demoExamId, liveApi } from './api';
-import brandMark from './brand-mark.svg';
+import brandMark from './brand-mark.png';
 import Professor from './Professor';
 import Student from './Student';
 import Welcome from './Welcome';
@@ -52,10 +52,9 @@ export default function App() {
       <a className="skip-link" href="#main">Skip to main content</a>
       <header className="site-header">
         <div className="shell header-content">
-          <div className="brand">
-            <img className="brand-mark" src={brandMark} width="40" height="40" alt="" />
-            <h1>Tamkeen</h1>
-          </div>
+          <h1 className="brand">
+            <img className="brand-mark" src={brandMark} width="1254" height="1254" alt="Tamkeen. Accessible Exams for Blind Students" />
+          </h1>
           <nav aria-label="Exam workspaces" className="workspace-nav">
             <button type="button" aria-current={mode === 'welcome' ? 'page' : undefined} onClick={() => setMode('welcome')}>Welcome</button>
             <button type="button" aria-current={mode === 'professor' ? 'page' : undefined} onClick={() => setMode('professor')}>Professor</button>
