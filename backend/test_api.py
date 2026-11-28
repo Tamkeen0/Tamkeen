@@ -64,6 +64,33 @@ class ExamApiTests(unittest.TestCase):
         self.assertEqual(self.client.get(f"/api/exams/{first['id']}").json(), first)
         self.extractor.assert_called_with(_PDF)
 
+    def test_exam_ids_are_short_codes_without_look_alike_characters(self) -> None:
+        ids = {self.draft()["id"] for _ in range(50)}
+        self.assertEqual(len(ids), 50)
+        for exam_id in ids:
+            self.assertRegex(exam_id, r"^[2-9ABCDEFGHJKMNPQRSTUVWXYZ]{6}$")
+
+    def test_exam_code_collisions_are_retried(self) -> None:
+        with patch("backend.store.secrets.choice", side_effect=list("AAAAAA" "AAAAAA" "BBBBBB")):
+            first, second = self.draft(), self.draft()
+        self.assertEqual((first["id"], second["id"]), ("AAAAAA", "BBBBBB"))
+
+    def test_exam_codes_ignore_case_and_surrounding_spaces(self) -> None:
+        exam = self.publish(self.draft())
+        typed = quote(f"  {exam['id'].lower()} ")
+        self.assertEqual(self.client.get(f"/api/exams/{typed}").json()["id"], exam["id"])
+        session = self.start(typed)
+        self.assertEqual(session["exam"]["id"], exam["id"])
+        response = self.client.post(f"/api/sessions/{session['id']}/submit", json={"confirmed": True})
+        self.assertEqual(response.status_code, 200, response.text)
+        submissions = self.client.get(f"/api/exams/{typed}/submissions").json()["submissions"]
+        self.assertEqual([item["id"] for item in submissions], [session["id"]])
+
+    def test_draft_can_be_saved_through_a_lowercase_code(self) -> None:
+        draft = self.draft()
+        response = self.client.put(f"/api/exams/{draft['id'].lower()}", json=draft)
+        self.assertEqual(response.status_code, 200, response.text)
+
     def test_bad_uploads_are_rejected_before_extraction(self) -> None:
         self.assertEqual(self.client.post("/api/exams").status_code, 400)
         self.assertEqual(self.upload(b"not a PDF").status_code, 400)

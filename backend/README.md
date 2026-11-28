@@ -13,6 +13,8 @@ The default extractor loads `document_engine.extract_exam(pdf_bytes)` when a pro
 
 For a development demo, set `TAMKEEN_EXTRACTOR=fixture` before starting Uvicorn. In PowerShell use `$env:TAMKEEN_EXTRACTOR = 'fixture'`. Upload a synthetic PDF. The resulting draft uses `fixtures/demo_exam.json` and includes a fixture-mode warning in professor review. Set the mode back to `document` for extraction testing.
 
+Each upload gets a six-character exam code, such as `K7M4QX`, for the professor to share with students. Codes avoid look-alike characters (0, O, 1, I and L), and lookups ignore letter case and surrounding spaces. Session IDs remain long random identifiers.
+
 Professors can save schema-valid drafts while resolving circuit issues. Publication requires a cleared review flag and explicit approval. The server checks the circuit nodes and terminals before publishing. Student sessions receive the published questions and an empty warnings array. Extraction warnings remain available on the professor’s exam. Answers keep their exact text and become read-only on confirmed submission.
 
 The prototype uses process-local memory. Run a single worker. Restarting the server clears all exams and sessions. Use synthetic content.

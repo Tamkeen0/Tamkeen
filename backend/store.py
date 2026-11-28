@@ -1,6 +1,7 @@
 """Single-process storage for the prototype assessment flow."""
 
 from copy import deepcopy
+import secrets
 from threading import Lock
 from typing import Literal
 from uuid import uuid4
@@ -9,6 +10,15 @@ from fastapi import HTTPException
 from typing_extensions import TypedDict
 
 from .exams import Exam, InvalidDraft, validate_for_publication
+
+# Exam codes are read aloud and typed by students, so they are short and
+# avoid look-alike characters (0/O, 1/I/L). Session IDs stay as UUIDs.
+EXAM_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
+EXAM_CODE_LENGTH = 6
+
+
+def normalize_exam_id(exam_id: str) -> str:
+    return exam_id.strip().upper()
 
 
 class Session(TypedDict):
@@ -26,8 +36,8 @@ class ExamStore:
 
     def create_draft(self, extracted: Exam) -> Exam:
         exam = deepcopy(extracted)
-        exam["id"] = uuid4().hex
         with self._lock:
+            exam["id"] = self._new_exam_code()
             self._exams[exam["id"]] = exam
             return deepcopy(exam)
 
@@ -38,7 +48,7 @@ class ExamStore:
     def save_draft(self, exam_id: str, replacement: Exam) -> Exam:
         with self._lock:
             self._draft(exam_id)
-            self._exams[exam_id] = deepcopy(replacement)
+            self._exams[normalize_exam_id(exam_id)] = deepcopy(replacement)
             return deepcopy(replacement)
 
     def publish(self, exam_id: str) -> Exam:
@@ -89,15 +99,21 @@ class ExamStore:
 
     def get_submissions(self, exam_id: str) -> list[Session]:
         with self._lock:
-            self._exam(exam_id)
+            exam_id = self._exam(exam_id)["id"]
             return [
                 deepcopy(session)
                 for session in self._sessions.values()
                 if session["exam"]["id"] == exam_id and session["status"] == "submitted"
             ]
 
+    def _new_exam_code(self) -> str:
+        while True:
+            code = "".join(secrets.choice(EXAM_CODE_ALPHABET) for _ in range(EXAM_CODE_LENGTH))
+            if code not in self._exams:
+                return code
+
     def _exam(self, exam_id: str) -> Exam:
-        exam = self._exams.get(exam_id)
+        exam = self._exams.get(normalize_exam_id(exam_id))
         if exam is None:
             raise HTTPException(404, "Exam ID was not found.")
         return exam
