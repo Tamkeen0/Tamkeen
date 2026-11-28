@@ -13,10 +13,12 @@ from .exams import (
     Exam,
     Extractor,
     InvalidDraft,
+    UnreadablePdf,
     extract_document,
     extract_fixture,
     validate_draft,
 )
+from . import ai_structuring
 from .store import ExamStore, Session, normalize_exam_id
 from .math_transcription import (
     MAX_OUTPUT,
@@ -74,6 +76,7 @@ def create_app(*, extractor: Extractor | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         math_log.info(status_line())
+        math_log.info(ai_structuring.status_line())
         yield
 
     app = FastAPI(title="Tamkeen", lifespan=lifespan)
@@ -104,10 +107,17 @@ def create_app(*, extractor: Extractor | None = None) -> FastAPI:
 
         try:
             extracted = extractor(pdf)
+        except UnreadablePdf as error:
+            math_log.warning("PDF upload rejected: %s", error.__cause__ or error)
+            raise HTTPException(400, str(error)) from error
         except ValueError as error:
+            math_log.warning("PDF upload rejected: %s", error)
             raise HTTPException(400, "The document engine could not read that PDF.") from error
         except RuntimeError as error:
-            raise HTTPException(503, "Document extraction is unavailable. Check the document engine setup.") from error
+            math_log.warning("PDF extraction failed: %s", error)
+            raise HTTPException(
+                503, "Document extraction is unavailable. The cause is shown in the backend terminal."
+            ) from error
 
         try:
             validate_draft(extracted)

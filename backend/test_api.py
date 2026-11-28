@@ -274,6 +274,33 @@ class ExamApiTests(unittest.TestCase):
             response = client.post("/api/exams", files={"file": ("demo.pdf", _PDF, "application/pdf")})
             self.assertEqual(response.status_code, 503)
 
+    def test_unreadable_pdfs_explain_the_problem_to_the_professor(self) -> None:
+        cases = (
+            (RuntimeError("A page has no digital text. Scanned pages require manual conversion."), "selectable text"),
+            (RuntimeError("No numbered questions could be read. Use a digital PDF with numbered questions."),
+             "No numbered questions"),
+            (ValueError("The PDF is encrypted, damaged, or empty."), "password-protected"),
+            (RuntimeError("Could not validate the extracted exam against the shared schema."), "supported layout"),
+        )
+        engine = ModuleType("document_engine")
+        engine.extract_exam = self.extractor
+        with patch.dict(os.environ, {"TAMKEEN_EXTRACTOR": "document"}):
+            app = create_app()
+        with patch.dict(sys.modules, {"document_engine": engine}), TestClient(app) as client:
+            for failure, explanation in cases:
+                with self.subTest(failure=str(failure)), self.assertLogs("uvicorn.error", "WARNING") as logs:
+                    self.extractor.side_effect = failure
+                    response = client.post("/api/exams", files={"file": ("exam.pdf", _PDF, "application/pdf")})
+                    self.assertEqual(response.status_code, 400)
+                    self.assertIn(explanation, response.json()["detail"])
+                    self.assertIn(str(failure), " ".join(logs.output))  # raw cause for whoever runs the server
+            self.extractor.side_effect = RuntimeError("internal engine detail")
+            with self.assertLogs("uvicorn.error", "WARNING") as logs:
+                response = client.post("/api/exams", files={"file": ("exam.pdf", _PDF, "application/pdf")})
+            self.assertEqual(response.status_code, 503)
+            self.assertNotIn("internal engine detail", response.json()["detail"])
+            self.assertIn("internal engine detail", " ".join(logs.output))
+
 
 if __name__ == "__main__":
     unittest.main()

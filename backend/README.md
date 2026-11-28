@@ -11,6 +11,10 @@ Vite forwards the existing frontend’s `/api` requests to this port. Choose **R
 
 The default extractor loads `document_engine.extract_exam(pdf_bytes)` when a professor uploads a file. The document team supplies the implementation and any provider configuration. A missing or unavailable engine returns HTTP 503. Uploads use multipart field `file` and accept PDFs up to 10 MiB, matching the frontend scanner’s generated PDF limit. PDF content extraction belongs to the document engine.
 
+When the uploaded file itself is the problem, such as a scan with no selectable text, no numbered questions, or a password, the upload returns HTTP 400 with a message telling the professor what to change. Every rejected upload also prints its raw cause in the backend terminal as `PDF upload rejected: …` or `PDF extraction failed: …`.
+
+**PDFs without numbered questions.** The rules expect questions such as `1.` or `Question 1:`. When they find none and `TAMKEEN_AI_STRUCTURING=1` is set with a working `GROQ_API_KEY`, the backend sends the PDF's text to Groq to split it into questions and choices, copying the wording exactly. Each question and choice is compared word for word with the PDF. Any mismatch is flagged in the draft's warnings, and the draft always says it was read by AI. The professor reviews and approves it as usual. The exam text leaves the machine, so keep this off for confidential exams. Startup prints whether it is on. Scans still need OCR first, because they have no text.
+
 For a development demo, set `TAMKEEN_EXTRACTOR=fixture` before starting Uvicorn. In PowerShell use `$env:TAMKEEN_EXTRACTOR = 'fixture'`. Upload a synthetic PDF. The resulting draft uses `fixtures/demo_exam.json` and includes a fixture-mode warning in professor review. Set the mode back to `document` for extraction testing.
 
 Each upload gets a six-character exam code, such as `K7M4QX`, for the professor to share with students. Codes avoid look-alike characters (0, O, 1, I and L), and lookups ignore letter case and surrounding spaces. Session IDs remain long random identifiers.
