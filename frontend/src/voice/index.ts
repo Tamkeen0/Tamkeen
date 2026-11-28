@@ -8,6 +8,7 @@ export {
   stopSpeaking,
   listenOnce,
   stopListening,
+  finishListening,
   isSpeechSupported,
   isRecognitionSupported,
   isSpeaking,

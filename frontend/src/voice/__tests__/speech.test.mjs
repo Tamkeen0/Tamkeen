@@ -5,6 +5,7 @@ import {
   stopSpeaking,
   listenOnce,
   stopListening,
+  finishListening,
   setSpeechEnvironment,
   isSpeaking,
   isListening,
@@ -214,6 +215,25 @@ test('stopListening cancels cleanly and a new listen works afterwards', async ()
   await rejectsWith(p, 'cancelled');
   assert.equal(rec.aborted, true);
   rec.say('late result is ignored');
+  const p2 = listenOnce();
+  last().say('next');
+  assert.equal(await p2, 'next');
+});
+
+test('finishListening (push-to-talk release) keeps the command the browser delivers afterwards', async () => {
+  const p = listenOnce({ mode: 'command' });
+  const rec = last();
+  finishListening(1000);
+  assert.equal(rec.aborted, false);
+  assert.equal(isListening(), true);
+  rec.say('answer');
+  assert.equal(await p, 'answer');
+});
+
+test('finishListening gives up cleanly when nothing arrives', async () => {
+  const p = listenOnce({ mode: 'command' });
+  finishListening(5);
+  await rejectsWith(p, 'cancelled');
   const p2 = listenOnce();
   last().say('next');
   assert.equal(await p2, 'next');
