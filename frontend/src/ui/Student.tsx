@@ -8,7 +8,7 @@ import type { Confirmation } from './StudentPanels';
 import { Icon } from './icons';
 import MicrophoneCheck from './MicrophoneCheck';
 import { useRequest } from './useRequest';
-import { useVoice } from './voice';
+import { playCue, useVoice } from './voice';
 import type { AnswerDraft, AnswerState, DiagramExplorer, VoiceApi, VoiceOutput } from './voice';
 
 function checkSession(session: Session, expectedStatus: Session['status'], id?: string): Session {
@@ -28,6 +28,10 @@ type StudentProps = {
   openAccessibility: (trigger: HTMLButtonElement) => void;
 };
 
+const ONBOARDING = 'Welcome to Tamkeen. Press the right arrow for the next question and the left arrow '
+  + 'for the previous one. Hold the Space key to speak a command and release it when finished. '
+  + 'Say help for the list of commands, or press H to hear these instructions again.';
+
 type MathReview = MathTranscription | { status: 'unavailable'; message: string };
 
 function mathReviewMessage(result: MathReview | undefined) {
@@ -41,13 +45,14 @@ export default function Student({ api, suggestedExamId, visible, onSessionActive
   const [checkingMicrophone, setCheckingMicrophone] = useState(false);
   const [session, setSession] = useState<Session>();
   const [mathAvailable, setMathAvailable] = useState(false);
+  const holdingSpace = useRef(false);
   const [index, setIndex] = useState(0);
   const [drafts, setDrafts] = useState(() => new Map<string, string>());
   const [mathReviews, setMathReviews] = useState(() => new Map<string, MathReview>());
   const [confirmation, setConfirmation] = useState<Confirmation>(null);
   const [status, setStatus] = useState<string>();
   const { busy, pending, error, run } = useRequest();
-  const [output, setOutput] = useState<VoiceOutput>('screenReader');
+  const [output, setOutput] = useState<VoiceOutput>('app');
   const voice = useVoice(visible, output);
   const editHistory = useRef(new Map<string, AnswerDraft>());
   const explorer = useRef<{ id: string; instance: DiagramExplorer } | undefined>(undefined);
@@ -133,6 +138,9 @@ export default function Student({ api, suggestedExamId, visible, onSessionActive
         setIndex(0);
         setSession(started);
         setStatus('Exam started.');
+        const first = started.exam.questions[0];
+        void voice.interrupt('Preparing instructions…', voiceApi => voice.speak(voiceApi,
+          `${ONBOARDING} ${first ? voiceApi.questionSpeech(first, 0, started.exam.questions.length, { firstVisit: true, status: 'none' }) : ''}`));
       } catch (failure) {
         onSessionActive(false);
         throw failure;
@@ -249,6 +257,68 @@ export default function Student({ api, suggestedExamId, visible, onSessionActive
     return () => document.removeEventListener('keydown', escape);
   }, [visible, sessionStatus, voice.activity, confirmation]);
 
+  function navigate(offset: number) {
+    const next = index + offset;
+    if (next < 0 || next >= questions.length) {
+      move(offset);
+      void voice.interrupt('Reading…', voiceApi =>
+        voice.speak(voiceApi, offset < 0 ? voiceApi.prompts.firstQuestion : voiceApi.prompts.lastQuestion));
+      return;
+    }
+    setConfirmation(null);
+    move(offset);
+    void voice.interrupt('Reading question…', voiceApi => voice.speak(voiceApi,
+      voiceApi.questionSpeech(questions[next], next, questions.length, { firstVisit: false, status: stateAt(next) })));
+  }
+
+  useEffect(() => {
+    if (!visible || sessionStatus !== 'active') return;
+    const editing = (element: Element | null) => element instanceof HTMLInputElement
+      || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement
+      || (element instanceof HTMLElement && element.isContentEditable);
+    const ownsSpace = (element: Element | null) => editing(element)
+      || Boolean(element?.matches('button, a[href], summary, [role="button"], [role="radio"], [role="checkbox"]'));
+    function down(event: KeyboardEvent) {
+      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || document.querySelector('dialog[open]')) return;
+      const focused = document.activeElement;
+      if (event.key === ' ') {
+        if (ownsSpace(focused)) return;
+        event.preventDefault();
+        if (event.repeat || holdingSpace.current) return;
+        holdingSpace.current = true;
+        playCue('start');
+        void voice.interrupt('Listening for a command…', command);
+      } else if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && !editing(focused)
+        && !focused?.matches('[role="radio"], [role="slider"], [role="tab"]') && !confirmation) {
+        event.preventDefault();
+        navigate(event.key === 'ArrowRight' ? 1 : -1);
+      } else if ((event.key === 'h' || event.key === 'H') && !editing(focused)) {
+        event.preventDefault();
+        void voice.interrupt('Reading instructions…', voiceApi => voice.speak(voiceApi, ONBOARDING));
+      }
+    }
+    function release() {
+      if (!holdingSpace.current) return;
+      holdingSpace.current = false;
+      playCue('stop');
+      voice.release();
+    }
+    function up(event: KeyboardEvent) {
+      if (event.key === ' ' && holdingSpace.current) {
+        event.preventDefault();
+        release();
+      }
+    }
+    document.addEventListener('keydown', down);
+    document.addEventListener('keyup', up);
+    window.addEventListener('blur', release);
+    return () => {
+      document.removeEventListener('keydown', down);
+      document.removeEventListener('keyup', up);
+      window.removeEventListener('blur', release);
+    };
+  });
+
   function getExplorer(api: VoiceApi) {
     if (!explorer.current || explorer.current.id !== question.id) {
       explorer.current = { id: question.id, instance: api.createDiagramExplorer(question.diagram) };
@@ -306,7 +376,20 @@ export default function Student({ api, suggestedExamId, visible, onSessionActive
   }
 
   async function command(api: VoiceApi, isCurrent: () => boolean, signal: AbortSignal) {
-    const transcript = await voice.listen(api, 'command');
+    let transcript: string;
+    try {
+      transcript = await voice.listen(api, 'command');
+    } catch (failure) {
+      const partial = api.isVoiceError(failure) ? failure.partialTranscript : undefined;
+      if (!partial?.trim()) {
+        if (api.isVoiceError(failure) && failure.code === 'cancelled' && isCurrent()) {
+          await voice.speak(api, 'No command heard. Hold Space, speak, then release.');
+          return;
+        }
+        throw failure;
+      }
+      transcript = partial;
+    }
     if (!isCurrent()) return;
     const say = (text: string) => voice.speak(api, text);
     const moveTo = async (position: number) => {

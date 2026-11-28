@@ -89,6 +89,7 @@ export function useVoice(visible: boolean, output: VoiceOutput) {
   const [keyboardOnly, setKeyboardOnly] = useState(false);
   const task = useRef<VoiceTask | undefined>(undefined);
   const lastMessage = useRef('');
+  const done = useRef<Promise<void>>(Promise.resolve());
 
   const stop = useCallback(() => {
     const current = task.current;
@@ -140,6 +141,8 @@ export function useVoice(visible: boolean, output: VoiceOutput) {
     const trigger = document.activeElement;
     const nearbyControls = trigger?.closest('.voice-panel');
     task.current = current;
+    let finished: () => void = () => {};
+    done.current = new Promise<void>(resolve => { finished = resolve; });
     const isCurrent = () => task.current === current && !current.stopped;
     clear();
     setActivity({ phase: 'preparing', label: pending });
@@ -159,6 +162,7 @@ export function useVoice(visible: boolean, output: VoiceOutput) {
         else setAnnouncement(message);
       }
     } finally {
+      finished();
       if (task.current === current) {
         task.current = undefined;
         setActivity(undefined);
@@ -169,6 +173,20 @@ export function useVoice(visible: boolean, output: VoiceOutput) {
         });
       }
     }
+  }
+
+  /** Stop whatever is speaking or listening, wait for it to finish, then run the new action. */
+  async function interrupt(pending: string, action: (api: VoiceApi, isCurrent: () => boolean, signal: AbortSignal) => Promise<void>) {
+    if (task.current) {
+      stop();
+      await done.current;
+    }
+    return run(pending, action);
+  }
+
+  /** Push-to-talk release: end the recording but keep and process what was heard. */
+  function release() {
+    task.current?.api?.stopListening();
   }
 
   async function listen(api: VoiceApi, mode: 'command' | 'dictation') {
@@ -186,7 +204,28 @@ export function useVoice(visible: boolean, output: VoiceOutput) {
 
   return {
     available: Boolean(loadVoice), activity, announcement, result, error, keyboardOnly, lastMessage,
-    clear, listen, run, speak, stop, retry: () => setKeyboardOnly(false),
+    clear, listen, run, interrupt, release, speak, stop, retry: () => setKeyboardOnly(false),
     processing: (label: string) => setActivity({ phase: 'processing', label }),
   };
+}
+
+let audio: AudioContext | undefined;
+
+/** Short distinct tones so a student knows recording started (rising) or stopped (falling). */
+export function playCue(kind: 'start' | 'stop') {
+  try {
+    audio ??= new AudioContext();
+    const now = audio.currentTime;
+    const tone = audio.createOscillator();
+    const gain = audio.createGain();
+    tone.frequency.setValueAtTime(kind === 'start' ? 660 : 880, now);
+    tone.frequency.linearRampToValueAtTime(kind === 'start' ? 990 : 520, now + 0.12);
+    gain.gain.setValueAtTime(0.18, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+    tone.connect(gain).connect(audio.destination);
+    tone.start(now);
+    tone.stop(now + 0.16);
+  } catch {
+    /* audio cues are optional */
+  }
 }
