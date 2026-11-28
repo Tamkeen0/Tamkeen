@@ -9,9 +9,9 @@ import Welcome from './Welcome';
 import './styles.css';
 
 export default function App() {
-  const [source, setSource] = useState<'demo' | 'live'>('demo');
+  const [source, setSource] = useState<'demo' | 'live'>('live');
   const [mode, setMode] = useState<'welcome' | 'professor' | 'student'>('welcome');
-  const [examId, setExamId] = useState(demoExamId);
+  const [examId, setExamId] = useState('');
   const [demoApi, setDemoApi] = useState(createMockApi);
   const [locked, setLocked] = useState(false);
   const [professorBusy, setProfessorBusy] = useState(false);

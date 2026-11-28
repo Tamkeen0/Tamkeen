@@ -33,6 +33,7 @@ export interface VoiceApi {
   stopSpeaking(): void;
   listenOnce(options?: { mode?: 'command' | 'dictation' }): Promise<string>;
   stopListening(): void;
+  finishListening(graceMs?: number): void;
   parseCommand(text: string): VoiceCommand;
   isRecognitionSupported(): boolean;
   isVoiceError(error: unknown): error is Error & { code: string; partialTranscript?: string };
@@ -186,7 +187,7 @@ export function useVoice(visible: boolean, output: VoiceOutput) {
 
   /** Push-to-talk release: end the recording but keep and process what was heard. */
   function release() {
-    task.current?.api?.stopListening();
+    task.current?.api?.finishListening();
   }
 
   async function listen(api: VoiceApi, mode: 'command' | 'dictation') {

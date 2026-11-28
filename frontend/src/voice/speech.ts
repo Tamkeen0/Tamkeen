@@ -477,6 +477,29 @@ export function listenOnce(options: ListenOptions = {}): Promise<string> {
   });
 }
 
+/**
+ * Push-to-talk release: stop recording gracefully so the browser still delivers what it
+ * heard (it only reports command words once recognition finishes). If nothing arrives
+ * within graceMs, the listen rejects with 'cancelled' like stopListening().
+ */
+export function finishListening(graceMs = 2500): void {
+  const pending = pendingListen;
+  if (!pending) return;
+  const rec = pending.recognition;
+  if (!rec) {
+    stopListening();
+    return;
+  }
+  try {
+    rec.stop?.();
+  } catch {
+    /* ignore */
+  }
+  setTimeout(() => {
+    if (!pending.settled) pending.settle({ ok: false, error: voiceError('cancelled', 'cancelled') });
+  }, graceMs);
+}
+
 /** Cancel an active or waiting listenOnce(); it rejects with code 'cancelled'. */
 export function stopListening(): void {
   pendingListen?.settle({ ok: false, error: voiceError('cancelled', 'cancelled') });

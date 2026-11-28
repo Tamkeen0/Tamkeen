@@ -382,7 +382,7 @@ export default function Student({ api, suggestedExamId, visible, onSessionActive
     } catch (failure) {
       const partial = api.isVoiceError(failure) ? failure.partialTranscript : undefined;
       if (!partial?.trim()) {
-        if (api.isVoiceError(failure) && failure.code === 'cancelled' && isCurrent()) {
+        if (api.isVoiceError(failure) && (failure.code === 'cancelled' || failure.code === 'no-speech') && isCurrent()) {
           await voice.speak(api, 'No command heard. Hold Space, speak, then release.');
           return;
         }
