@@ -15,7 +15,7 @@ Open the URL printed by Vite. The app starts in **Demo fixture** mode. Upload a 
 
 ## Trying voice in Chrome
 
-In an integrated checkout that includes `frontend/src/voice/index.ts`, open **Student**, keep exam ID `demo`, and choose **Voice feedback**. Use **Screen reader** for live announcements, **App voice** to hear the app, or enable both. Choose **Start exam**, then test the microphone or continue without it. The microphone check itself is optional.
+In an integrated checkout that includes `frontend/src/voice/index.ts`, open **Student**, keep exam ID `demo`, and choose **Start exam**. Test the microphone or continue without it. On a question or review, expand **Voice commands and settings** to find **Voice feedback**. **Screen reader** is the default. Question changes move focus to the question heading for normal screen-reader reading. Use **App voice** for synthesized speech or **App voice, then screen reader** to receive the same voice response in sequence.
 
 Use **Listen for command** and say “go to question three”, then “walk me through this diagram”. Say “next part” to advance the circuit tour. Use **Dictate answer** to enter literal text. In a separate command turn, say “add”, “replace”, or “undo” to edit the draft. Review it before saving. Saying “submit” opens a review. Say “confirm” there or use the **Submit exam** button.
 
@@ -23,9 +23,11 @@ Use **Stop voice** or Escape to stop speech. Words already heard during dictatio
 
 ## Welcome and workspaces
 
-Choose **Professor** or **Student** from the welcome page or main navigation. Returning to Welcome preserves the open workspace state. Changing the data source starts a fresh workspace. The welcome artwork and interface icons are local SVGs. The navy, indigo, and teal palette, typography, spacing, controls, and status styles share CSS tokens in `styles.css`.
+Choose **Professor** or **Student** from Welcome or the main navigation. The first Tab from page load reaches **Skip to main content**. Returning to Welcome preserves the open workspace state. Changing the data source starts a fresh workspace.
 
-Professor review shows one question at a time. The question navigation preserves edits, and a question-specific validation error opens the affected question. A fresh upload or scan has a local source-PDF preview while reviewing the draft. The Student progress panel distinguishes confirmed answers from unconfirmed edits and unanswered questions. Voice activity follows operations in the UI and is shown when the adapter is available.
+Student questions appear one at a time in reading order. Open **Explore circuit facts** on a circuit question to read the approved description, nodes, component values and terminal connections. **Previous question** and **Next question** move between questions. Expand **Exam progress** to jump to a question and check for confirmed answers, unconfirmed edits, and unanswered questions. **Review answer** shows the literal draft for editing or explicit confirmation. **Review submission** lists confirmed answers and warns about unanswered questions and edits before the final submission.
+
+Professor review shows one question at a time. The question navigation preserves edits, and a question-specific validation error opens the affected question. A fresh upload or scan has a local source-PDF preview while reviewing the draft.
 
 ## English interface
 
@@ -39,9 +41,9 @@ The check requires a secure page and browser microphone and Web Audio support. I
 
 ## Accessibility Studio
 
-Open **Accessibility** from the header on any screen, or **Exam accessibility** during an active exam. Adjust text size (100–200%), line spacing (1.40–2.40), letter spacing (up to 0.12 em), or word spacing (up to 0.16 em). Choose one of six presets, or enable custom reading colors for exam text and answer surfaces. Custom pairs require at least 4.5:1 contrast. An invalid pair leaves the last accessible colors in place.
+Open **Accessibility** from the header on any screen, or **Exam accessibility** during an active exam. Text size (100–200%) and the six contrast presets are available immediately. Expand **Custom colors and spacing** for line, letter, and word spacing and custom reading colors. Custom pairs require at least 4.5:1 contrast. An invalid pair leaves the last accessible colors in place. Expand **Focus and visibility** for focus outlines, motion, link underlines, control boundaries, and question separation.
 
-The sample preview uses separate content. Settings apply immediately and only affect presentation. Browser storage under `tamkeen.accessibility.v1` contains visual preferences. If storage is unavailable, settings remain active until reload. Use **Reset to defaults** to restore the original theme and settings. Close with Escape or **Close** to return focus to the button that opened the Studio. System reduced-motion and forced-colors settings remain supported.
+Expand **Live preview** to try the settings on sample content. Settings apply immediately and only affect presentation. Browser storage under `tamkeen.accessibility.v1` contains visual preferences. If storage is unavailable, settings remain active until reload. Use **Reset to defaults** to restore the original theme and settings. Close with Escape or **Close** to return focus to the button that opened the Studio. System reduced-motion and forced-colors settings remain supported.
 
 For acceptance, open the Studio during an exam with an answer edit, an open circuit, or active mocked voice. Change preferences, close the dialog, then verify the same exam state and continue. Repeat during a draft with approval checked and while a camera capture or upload is in progress. At 320 px, verify the layout at 200% text size with all three spacing settings at maximum.
 

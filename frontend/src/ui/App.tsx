@@ -31,8 +31,11 @@ export default function App() {
 
   useLayoutEffect(() => {
     if (previousMode.current !== mode) {
-      const target = main.current?.querySelector<HTMLElement>(':scope > section:not([hidden]) h2') ?? main.current;
-      target?.focus();
+      const section = main.current?.querySelector(':scope > section:not([hidden])');
+      if (!section?.contains(document.activeElement)) {
+        const target = section?.querySelector<HTMLElement>('h2') ?? main.current;
+        target?.focus();
+      }
     }
     previousMode.current = mode;
   }, [mode]);
@@ -69,7 +72,7 @@ export default function App() {
           </div>
         </div>
       </header>
-      <main className={'shell workspace' + (mode === 'welcome' ? ' welcome-workspace' : '')} id="main" tabIndex={-1} ref={main} key={source}>
+      <main className="shell workspace" id="main" tabIndex={-1} ref={main} key={source}>
         {mode === 'welcome' && <section aria-label="Welcome to Tamkeen"><Welcome demo={source === 'demo'} enter={setMode} /></section>}
         <section hidden={mode !== 'professor'} aria-label="Professor workspace">
           <Professor api={api} demo={source === 'demo'} visible={mode === 'professor'} onPublish={setExamId} onBusyChange={setProfessorBusy} />
