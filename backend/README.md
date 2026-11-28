@@ -30,8 +30,29 @@ For a browser check, run the existing Vite frontend and FastAPI together. In **R
 
 ## Math dictation
 
-Set `GROQ_API_KEY` in the backend process environment before starting Uvicorn. `GROQ_MODEL` is optional and defaults to `openai/gpt-oss-20b`. Use a Groq Free Plan key for the demo. The application sends one expression per request and shares only the transcript, with no question, stored answer, or tool access.
+Set `GROQ_API_KEY` in the backend process environment before starting Uvicorn. `GROQ_MODEL` is optional and defaults to `openai/gpt-oss-20b`. Use a Groq Free Plan key for the demo. The application sends one expression per request and shares only the transcript, with no question, stored answer, or tool access. Never put the key in a file that Git tracks.
+
+**Set up and check, from the repository root in PowerShell:**
+
+```powershell
+$env:GROQ_API_KEY = 'gsk_...'
+python -m backend.math_transcription
+```
+
+The check sends one synthetic expression and prints either `OK` with Groq's reply or the exact problem and fix. Start Uvicorn in the same window. Its startup output says `Math dictation is on` or explains why it is off. When it is off, `GET /api/health` reports `"math_transcription": false` and students do not see **Dictate math**.
+
+Students see short messages only. The cause of any failure is printed in the backend terminal as `Math dictation failed: …`.
+
+| Backend message | Fix |
+|---|---|
+| `GROQ_API_KEY is not set` | Set the key in the same window that starts Uvicorn. |
+| `contains … space or hidden character(s)` or `empty HTTP 400` | The paste added an invisible character. Copy the key again. |
+| `rejected GROQ_API_KEY (HTTP 401)` | The key is wrong or revoked. Create a new one in the Groq console. |
+| `network front end blocked the request (HTTP 403)` | Groq's Cloudflare front end refused the client. Report it with the full message. |
+| `no model named … (HTTP 404)` | Fix or remove `GROQ_MODEL`. |
+| `rate limit reached (HTTP 429)` | Wait a minute. The Free Plan limits requests per minute. |
+| `Could not connect to Groq` | Check the internet connection. |
 
 For a synthetic demo, start FastAPI in fixture mode and choose **Real API** in the frontend. Upload a synthetic PDF, approve and publish the fixture, then start its student session. On the math or circuit question, choose **Dictate math** or say “dictate math” in a voice-command turn. Review the original transcript, LaTeX, and spoken notation before confirming. Try “X plus Y over Z” to exercise clarification and then dictate the full expression again with explicit grouping. The original transcript remains available for confirmation when the provider fails.
 
-The backend test suite uses mocked responses. To also run the live examples against a configured Groq account, set `TAMKEEN_TEST_LIVE_GROQ=1` before running `python -m unittest backend.test_math_transcription`. Use synthetic expressions. The service validates structure and rejects common direct assistance requests. The student still needs to verify that the interpretation faithfully represents their speech.
+The backend test suite uses mocked responses. To also run the live examples against a configured Groq account, set `TAMKEEN_TEST_LIVE_GROQ=1` before running `python -m unittest backend.test_math_transcription`. Run it from the repository root of a branch that includes this feature. The live tests compare LaTeX by meaning and ignore style-only differences such as braces, spacing, letter case and `\mathrm{d}`. Use synthetic expressions. The service validates structure and rejects common direct assistance requests. The student still needs to verify that the interpretation faithfully represents their speech.

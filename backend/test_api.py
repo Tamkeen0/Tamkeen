@@ -56,7 +56,9 @@ class ExamApiTests(unittest.TestCase):
         return response.json()
 
     def test_health_and_server_assigned_id(self) -> None:
-        self.assertEqual(self.client.get("/api/health").json(), {"ok": True})
+        health = self.client.get("/api/health").json()
+        self.assertIs(health["ok"], True)
+        self.assertIsInstance(health["math_transcription"], bool)
         first, second = self.draft(), self.draft()
         self.assertNotEqual(first["id"], second["id"])
         self.assertNotEqual(first["id"], self.extracted["id"])
