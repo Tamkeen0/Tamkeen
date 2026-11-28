@@ -3,7 +3,7 @@ import { UiError } from './errors';
 import type { Session } from '../../../contracts/types';
 import type { ExamApi } from './api';
 import { AnswerList, WorkspaceIntro, confirmedAnswer } from './components';
-import { QuestionPanel, ReviewPanel, SessionPanel } from './StudentPanels';
+import { QuestionPanel, ReviewPanel, SessionPanel, VoiceControls } from './StudentPanels';
 import type { Confirmation } from './StudentPanels';
 import { Icon } from './icons';
 import MicrophoneCheck from './MicrophoneCheck';
@@ -86,7 +86,8 @@ export default function Student({ api, suggestedExamId, visible, onSessionActive
   const editWarning = unconfirmed ? ` Submitting will discard ${unconfirmed} unconfirmed ${unconfirmed === 1 ? 'edit' : 'edits'}.` : '';
   const submitMessage = `${unansweredSummary}${editWarning} Submission locks your confirmed answers.`;
   const locked = busy || Boolean(voice.activity);
-  const announcement = error ?? voice.announcement ?? (voice.result ? undefined : voice.error ?? pending ?? status);
+  const voiceFeedback = voice.activity?.phase === 'speaking' ? undefined : voice.activity?.label;
+  const announcement = error ?? voice.announcement ?? voiceFeedback ?? (voice.result ? undefined : voice.error ?? pending ?? status);
 
   function updateAnswer(id: string, text: string) {
     editHistory.current.get(id)?.replaceAll(text);
@@ -157,7 +158,6 @@ export default function Student({ api, suggestedExamId, visible, onSessionActive
       setDrafts(new Map());
       editHistory.current.clear();
       setConfirmation(null);
-      setStatus('Exam submitted. Your answers are locked.');
       onSessionActive(false);
       await onSubmitted?.();
     });
@@ -187,8 +187,13 @@ export default function Student({ api, suggestedExamId, visible, onSessionActive
 
   useEffect(() => {
     if (!visible || sessionStatus !== 'active' || !question || lastArrival.current === question.id) return;
-    void voice.run('Preparing question…', async api => { await readQuestion(api, index, true); }, true);
-  }, [visible, sessionStatus, question?.id]);
+    if (output === 'screenReader') {
+      lastArrival.current = question.id;
+      visited.current.add(question.id);
+      return;
+    }
+    void voice.run('Preparing question…', async api => { await readQuestion(api, index, true); });
+  }, [visible, sessionStatus, question?.id, output]);
 
   function stopVoice() {
     const stopped = voice.stop();
@@ -255,6 +260,7 @@ export default function Student({ api, suggestedExamId, visible, onSessionActive
       if (position !== index) {
         setConfirmation(null);
         move(position - index);
+        if (output === 'screenReader') return;
       }
       await readQuestion(api, position, position !== index);
     };
@@ -377,56 +383,50 @@ export default function Student({ api, suggestedExamId, visible, onSessionActive
     void voice.run('Preparing to read aloud…', api => voice.speak(api, message(api)));
   }
 
+  const voiceControls = <VoiceControls available={voice.available} activity={voice.activity}
+    busy={busy} keyboardOnly={voice.keyboardOnly} reviewing={Boolean(confirmation)}
+    output={output} setOutput={next => {
+      voice.clear();
+      setOutput(next);
+    }}
+    dictate={() => void voice.run('Preparing to dictate…', dictate)}
+    read={() => confirmation ? readAloud(api => confirmation === 'answer'
+      ? api.readBackText(answer)
+      : [submitMessage, ...questions.map((item, position) =>
+          `Question ${position + 1}. ${api.readBackText(confirmedAnswer(session, item.id) ?? 'Unanswered.')}`)].join(' '))
+      : void voice.run('Preparing question…', async api => { await readQuestion(api, index); })}
+    listen={() => void voice.run('Preparing voice controls…', command)} stop={stopVoice} retry={voice.retry} />;
+
   return (
-    <>
-      <WorkspaceIntro label={session ? (session.status === 'submitted' ? 'Completed assessment' : 'Assessment session') : 'Take an assessment'}
-        icon="person" title={session ? <bdi>{session.exam.title}</bdi> : 'Student workspace'}
-        description={session ? <>Student session <bdi>{session.id}</bdi></> : 'Open a published exam and work through it with your keyboard or available voice controls.'} />
-      {session?.status === 'active' && <div className="exam-tools">
-        <button type="button" className="quiet" aria-haspopup="dialog" aria-controls="accessibility-studio"
-          onClick={event => openAccessibility(event.currentTarget)}><Icon name="accessibility" /> Exam accessibility</button>
-      </div>}
-      {voice.available && session?.status !== 'submitted' && <label className="voice-output">Voice feedback
-        <select value={output} disabled={locked} onChange={event => {
-          voice.clear();
-          setOutput(event.target.value as VoiceOutput);
-        }}>
-          <option value="screenReader">Screen reader</option>
-          <option value="app">App voice</option>
-          <option value="both">App voice and screen reader</option>
-        </select>
-      </label>}
+    <div className="reading-column">
+      <WorkspaceIntro title={session ? <bdi>{session.exam.title}</bdi> : 'Student workspace'} headingId={session ? 'student-exam-title' : undefined}
+        description={session ? <>Student session <bdi>{session.id}</bdi></> : 'Use the exam ID provided by your professor.'} />
       <p className="visually-hidden" role="status" aria-atomic="true">{announcement}</p>
-      <p className="feedback-status" data-pending={busy || undefined}>{pending || voice.activity?.label || voice.result || status}</p>
+      <p className="feedback-status" data-pending={busy || undefined}>
+        {pending || voice.activity?.label || (voice.result !== voice.error ? voice.result : undefined) || status}
+      </p>
       <p className="feedback-error">{error || voice.error}</p>
       {visible && checkingMicrophone && !session && <MicrophoneCheck onCancel={() => setCheckingMicrophone(false)} onContinue={() => {
         setCheckingMicrophone(false);
         startExam();
       }} />}
       {!session ? (
-        <div className="panels student-entry">
-          <form className="panel start-panel" noValidate onSubmit={event => {
+        <section className="panel start-panel" aria-labelledby="start-heading">
+          <h3 id="start-heading">Start an exam</h3>
+          <p className="exam-instructions">The microphone check is optional. Review and confirm each answer to save it.
+            When you finish, review any unanswered questions before submitting.</p>
+          <form noValidate onSubmit={event => {
             event.preventDefault();
             if (examId.trim()) setCheckingMicrophone(true);
             else startExam();
           }}>
-            <div className="section-title"><span className="icon-tile"><Icon name="document" /></span><h3>Start an exam</h3></div>
-            <p>Use the exam ID provided by your professor.</p>
             <label>Student exam ID<input ref={startInput} required dir="auto" value={examId} disabled={busy} onChange={event => setEnteredId(event.target.value)} /></label>
             <button className="primary" disabled={busy}>Start exam <Icon name="arrow" /></button>
           </form>
-          <section className="panel student-guide" aria-labelledby="exam-guide">
-            <div className="section-title"><span className="icon-tile teal"><Icon name="check" /></span><h3 id="exam-guide">During the exam</h3></div>
-            <ol className="exam-guide-list">
-              <li><strong>Navigate with your keyboard</strong><p>Use Tab to move between controls and Enter to activate a button.</p></li>
-              <li><strong>Confirm each answer</strong><p>Review and confirm each answer to save it.</p></li>
-              <li><strong>Review before submitting</strong><p>Your confirmed answers lock when you submit.</p></li>
-            </ol>
-          </section>
-        </div>
+        </section>
       ) : session.status === 'submitted' ? (
         <section className="panel submitted-panel" aria-labelledby="submitted-heading">
-          <div className="section-title"><span className="icon-tile teal"><Icon name="check" /></span><h3 id="submitted-heading" ref={heading} tabIndex={-1}>Exam submitted</h3></div>
+          <h3 id="submitted-heading" ref={heading} tabIndex={-1}>Exam submitted</h3>
           <p>Your confirmed answers are locked.</p>
           <AnswerList session={session} />
           <button type="button" disabled={locked} onClick={() => {
@@ -448,28 +448,23 @@ export default function Student({ api, suggestedExamId, visible, onSessionActive
                 voice.clear();
                 cancelReview();
               }}
-              readBack={voice.available ? () => readAloud(api => confirmation === 'answer'
-                ? api.readBackText(answer)
-                : [submitMessage, ...questions.map((item, position) =>
-                    `Question ${position + 1}. ${api.readBackText(confirmedAnswer(session, item.id) ?? 'Unanswered.')}`)].join(' ')) : undefined} />
+              voiceControls={voiceControls} />
           ) : (
             <QuestionPanel question={question} index={index} total={questions.length} answer={answer}
               answerStatus={answerStatus} locked={locked} heading={heading} editor={editor}
               change={text => updateAnswer(question.id, text)} move={move}
               reviewAnswer={() => { voice.clear(); setConfirmation('answer'); }}
               reviewSubmission={() => { voice.clear(); setConfirmation('submit'); }}
-              dictate={voice.available && !voice.keyboardOnly ? () => void voice.run('Preparing to dictate…', dictate) : undefined}
-              readQuestion={voice.available ? () => void voice.run('Preparing question…', async api => {
-                await readQuestion(api, index);
-              }) : undefined} />
+              voiceControls={voiceControls} />
           )}
-          <SessionPanel answered={answered} questions={questionStates} current={index} reviewOpen={Boolean(confirmation)}
-            selectQuestion={target => move(target - index)} busy={busy} voicePhase={voice.activity?.phase}
-            voiceAvailable={voice.available} voiceError={Boolean(voice.error)} keyboardOnly={voice.keyboardOnly}
-            listen={() => void voice.run('Preparing voice controls…', command)}
-            stop={stopVoice} retry={voice.retry} />
+          {!confirmation && <SessionPanel answered={answered} questions={questionStates} current={index}
+            selectQuestion={target => target !== index && move(target - index)} locked={locked} />}
+          <div className="exam-tools">
+            <button type="button" className="quiet" aria-haspopup="dialog" aria-controls="accessibility-studio"
+              onClick={event => openAccessibility(event.currentTarget)}>Exam accessibility</button>
+          </div>
         </div>
       )}
-    </>
+    </div>
   );
 }

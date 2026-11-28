@@ -1,19 +1,14 @@
-import type { Ref } from 'react';
+import type { ReactNode, Ref } from 'react';
 import type { Diagram, Question, Session } from '../../../contracts/types';
 import { AnswerList } from './components';
 import { Icon } from './icons';
-import type { VoiceActivity } from './voice';
+import type { VoiceActivity, VoiceOutput } from './voice';
 
 export type Confirmation = 'answer' | 'submit' | null;
-const questionTypes: Record<Question['type'], string> = { mcq: 'Multiple choice', text: 'Written response', math: 'Mathematics', diagram: 'Circuit diagram' };
-const voiceStates: Record<VoiceActivity['phase'], string> = {
-  preparing: 'Preparing', listening: 'Listening', speaking: 'Speaking', processing: 'Processing command',
-};
-
 function Circuit({ diagram }: { diagram: Diagram }) {
   return (
     <details className="circuit">
-      <summary><span><Icon name="circuit" /> Explore circuit facts</span></summary>
+      <summary>Explore circuit facts</summary>
       <p dir="auto"><bdi>{diagram.description}</bdi></p>
       {diagram.nodes.length > 0 && (
         <>
@@ -49,22 +44,17 @@ type QuestionPanelProps = {
   move: (offset: number) => void;
   reviewAnswer: () => void;
   reviewSubmission: () => void;
-  dictate?: () => void;
-  readQuestion?: () => void;
+  voiceControls: ReactNode;
 };
 
 export function QuestionPanel({ question, index, total, answer, answerStatus, locked, heading, editor, change, move,
-  reviewAnswer, reviewSubmission, dictate, readQuestion }: QuestionPanelProps) {
+  reviewAnswer, reviewSubmission, voiceControls }: QuestionPanelProps) {
   return (
     <section className="panel question" aria-labelledby="question-heading">
-      <div className="section-heading">
-        <h3 id="question-heading" ref={heading} tabIndex={-1}>Question {index + 1} of {total}</h3>
-        <span className={'tag answer-status' + (answerStatus === 'Answer confirmed' ? ' tag-live' : '')}>
-          {answerStatus === 'Answer confirmed' && <Icon name="check" />}{answerStatus}
-        </span>
-      </div>
-      <p className="question-kind">{questionTypes[question.type]}</p>
+      <h3 id="question-heading" ref={heading} tabIndex={-1}
+        aria-describedby={index === 0 ? 'student-exam-title' : undefined}>Question {index + 1} of {total}</h3>
       <p className="question-text" dir="auto"><bdi>{question.accessible_text}</bdi></p>
+      {question.diagram && <Circuit key={question.id} diagram={question.diagram} />}
       {question.options.length > 0 && (
         <fieldset disabled={locked} className="option-fieldset">
           <legend>Answer options</legend>
@@ -74,12 +64,11 @@ export function QuestionPanel({ question, index, total, answer, answerStatus, lo
           ))}</ul>
         </fieldset>
       )}
-      {question.diagram && <Circuit key={question.id} diagram={question.diagram} />}
-      <label className="answer-field">Your answer<textarea dir="auto" ref={editor} value={answer} readOnly={locked} onChange={event => change(event.target.value)} /></label>
+      <label className="answer-field">Your answer<textarea aria-describedby="answer-status" dir="auto" ref={editor} value={answer} readOnly={locked} onChange={event => change(event.target.value)} /></label>
+      {voiceControls}
+      <p className="answer-status" id="answer-status">{answerStatus}</p>
       <div className="actions">
         <button className="primary" type="button" disabled={locked || !answer.trim()} onClick={reviewAnswer}>Review answer</button>
-        {dictate && <button type="button" disabled={locked} onClick={dictate}><Icon name="microphone" /> Dictate answer</button>}
-        {readQuestion && <button type="button" disabled={locked} onClick={readQuestion}><Icon name="sound" /> Read question aloud</button>}
       </div>
       <nav className="question-nav" aria-label="Question navigation">
         <div className="actions">
@@ -92,67 +81,76 @@ export function QuestionPanel({ question, index, total, answer, answerStatus, lo
   );
 }
 
-export function ReviewPanel({ confirmation, answer, session, submitMessage, heading, locked, confirm, returnToQuestion, readBack }: {
+export function ReviewPanel({ confirmation, answer, session, submitMessage, heading, locked, confirm, returnToQuestion, voiceControls }: {
   confirmation: Exclude<Confirmation, null>; answer: string; session: Session; submitMessage: string; heading: Ref<HTMLHeadingElement>;
-  locked: boolean; confirm: () => void; returnToQuestion: () => void; readBack?: () => void;
+  locked: boolean; confirm: () => void; returnToQuestion: () => void; voiceControls: ReactNode;
 }) {
   const reviewingAnswer = confirmation === 'answer';
   return (
     <section className="panel review-panel" aria-labelledby="review-heading">
-      <div className="section-title"><span className="icon-tile"><Icon name={reviewingAnswer ? 'check' : 'inbox'} /></span>
-        <h3 id="review-heading" ref={heading} tabIndex={-1}>{reviewingAnswer ? 'Review your answer' : 'Review your submission'}</h3></div>
+      <h3 id="review-heading" ref={heading} tabIndex={-1}>{reviewingAnswer ? 'Review your answer' : 'Review your submission'}</h3>
       {reviewingAnswer
         ? <p className="literal receipt" dir="auto"><bdi dir="auto">{answer}</bdi></p>
         : <><p className="submission-message">{submitMessage}</p><AnswerList session={session} /></>}
       <div className="actions">
         <button type="button" className="primary" disabled={locked} onClick={confirm}>{reviewingAnswer ? 'Confirm answer' : 'Submit exam'}</button>
         <button type="button" disabled={locked} onClick={returnToQuestion}>{reviewingAnswer ? 'Edit answer' : 'Return to questions'}</button>
-        {readBack && <button type="button" disabled={locked} onClick={readBack}>Read review aloud</button>}
       </div>
+      {voiceControls}
     </section>
   );
 }
 
-export function SessionPanel({ answered, questions, current, reviewOpen, selectQuestion, busy, voiceAvailable, voicePhase, voiceError, keyboardOnly, listen, stop, retry }: {
-  answered: number; questions: { confirmed: boolean; edited: boolean }[]; current: number; reviewOpen: boolean;
-  selectQuestion: (index: number) => void; busy: boolean; voiceAvailable: boolean; voicePhase?: VoiceActivity['phase'];
-  voiceError: boolean; keyboardOnly: boolean; listen: () => void; stop: () => void; retry: () => void;
+export function SessionPanel({ answered, questions, current, selectQuestion, locked }: {
+  answered: number; questions: { confirmed: boolean; edited: boolean }[]; current: number;
+  selectQuestion: (index: number) => void; locked: boolean;
 }) {
-  const total = questions.length;
-  const confirmedCount = `${answered} of ${total} confirmed`;
-  const voiceState = !voiceAvailable || keyboardOnly ? 'Keyboard controls' : voicePhase ? voiceStates[voicePhase]
-    : voiceError ? 'Voice error' : reviewOpen ? 'Confirmation required' : 'Ready';
   return (
-    <aside className="panel session-panel" aria-labelledby="progress-heading">
-      <h3 id="progress-heading">Exam progress</h3>
-      <p className="progress-count"><strong>{answered} of {total}</strong> confirmed</p>
-      <progress aria-label="Confirmed answers" aria-valuetext={confirmedCount} value={answered} max={total} />
-      {!reviewOpen && <nav className="question-map" aria-label="Jump to a question">
+    <details className="exam-progress">
+      <summary>Exam progress: {answered} of {questions.length} confirmed</summary>
+      <nav className="question-map" aria-label="Jump to a question">
         {questions.map(({ confirmed, edited }, index) => {
           const label = edited ? 'Unconfirmed edit' : confirmed ? 'Confirmed' : 'Unanswered';
           return <button key={index} type="button" aria-current={index === current ? 'step' : undefined}
-            disabled={busy || Boolean(voicePhase)} onClick={() => selectQuestion(index)}>
-            <span>Question {index + 1}</span><small>{confirmed && !edited && <Icon name="check" />}{label}</small>
+            disabled={locked} onClick={() => selectQuestion(index)}>
+            <span>Question {index + 1}</span><small>{label}</small>
           </button>;
         })}
-      </nav>}
-      <div className="voice-panel">
-        <div className="voice-heading"><h4><Icon name={voicePhase === 'speaking' ? 'sound' : 'microphone'} /> Voice controls</h4>
-          <span className="voice-state" data-active={Boolean(voicePhase) || undefined}>{voiceState}</span></div>
-        {voiceAvailable ? (
-          <>
-            <p>{keyboardOnly ? 'You can continue with the keyboard.' : reviewOpen
-              ? 'Say “confirm” to confirm the current review or “cancel” to return.'
-              : 'Say “help” for commands or “walk me through this diagram” on a circuit question.'}</p>
-            <div className="actions">
-              {keyboardOnly
-                ? <button type="button" disabled={busy || Boolean(voicePhase)} onClick={retry}>Retry microphone</button>
-                : <button type="button" disabled={busy || Boolean(voicePhase)} onClick={listen}>Listen for command</button>}
-              <button type="button" disabled={!voicePhase || busy} onClick={stop}>Stop voice</button>
-            </div>
-          </>
-        ) : <p>Voice is unavailable in this build. You can complete the exam with your keyboard.</p>}
-      </div>
-    </aside>
+      </nav>
+    </details>
+  );
+}
+
+export function VoiceControls({ available, activity, busy, keyboardOnly, reviewing, output, setOutput, dictate, read, listen, stop, retry }: {
+  available: boolean; activity?: VoiceActivity; busy: boolean; keyboardOnly: boolean; reviewing: boolean;
+  output: VoiceOutput; setOutput: (output: VoiceOutput) => void; dictate: () => void; read: () => void;
+  listen: () => void; stop: () => void; retry: () => void;
+}) {
+  if (!available) return null;
+  const locked = busy || Boolean(activity);
+  return (
+    <div className="voice-panel">
+      {!reviewing && !keyboardOnly && <button type="button" aria-disabled={locked} onClick={() => { if (!locked) dictate(); }}><Icon name="microphone" /> Dictate answer</button>}
+      {activity && <button type="button" disabled={busy} onClick={stop}>Stop voice</button>}
+      <details>
+        <summary>Voice commands and settings</summary>
+        <p>{keyboardOnly ? 'You can continue with the keyboard.' : reviewing
+          ? 'Say “confirm” to confirm the current review or “cancel” to return.'
+          : 'Say “help” for available commands.'}</p>
+        <div className="actions">
+          {keyboardOnly
+            ? <button type="button" disabled={locked} onClick={retry}>Retry microphone</button>
+            : <button type="button" aria-disabled={locked} onClick={() => { if (!locked) listen(); }}>Listen for command</button>}
+          <button type="button" aria-disabled={locked} onClick={() => { if (!locked) read(); }}>{reviewing ? 'Read review aloud' : 'Read question aloud'}</button>
+        </div>
+        <label className="voice-output">Voice feedback
+          <select value={output} disabled={locked} onChange={event => setOutput(event.target.value as VoiceOutput)}>
+            <option value="screenReader">Screen reader</option>
+            <option value="app">App voice</option>
+            <option value="both">App voice, then screen reader</option>
+          </select>
+        </label>
+      </details>
+    </div>
   );
 }

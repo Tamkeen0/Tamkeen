@@ -36,7 +36,6 @@ export default function Professor({ api, demo, visible, onPublish, onBusyChange 
   const [results, setResults] = useState<Session[]>();
   const examHeading = useRef<HTMLHeadingElement>(null);
   const scannerTrigger = useRef<HTMLButtonElement>(null);
-  const activeStep = exam?.status === 'published' ? 2 : exam ? 1 : 0;
   const sourceUrl = useObjectUrl(draftSource?.pdf);
 
   useLayoutEffect(() => {
@@ -125,25 +124,16 @@ export default function Professor({ api, demo, visible, onPublish, onBusyChange 
 
   return (
     <>
-      <WorkspaceIntro label="Exam preparation" icon="school" title="Professor workspace"
+      <WorkspaceIntro title="Professor workspace"
         description="Prepare an accessible exam, verify what students will receive, and review their submissions." />
-      <ol className="workflow" role="list" aria-label="Professor workflow">
-        {[
-          { label: 'Upload or open', target: 'upload-heading' },
-          { label: 'Review and publish', target: exam?.status === 'draft' ? 'draft-heading' : undefined },
-          { label: 'View submissions', target: exam?.status === 'published' ? 'results-heading' : undefined },
-        ].map(({ label, target }, index) => {
-          const contents = <><span className="step-number" aria-hidden="true">{index < activeStep ? <Icon name="check" /> : index + 1}</span>{label}</>;
-          return <li key={label} aria-current={activeStep === index ? 'step' : undefined}>
-            {target ? <a className="step-link" href={'#' + target}>{contents}</a> : <span className="step-link">{contents}</span>}
-          </li>;
-        })}
-      </ol>
+      {exam && <p className="professor-shortcut"><a href={exam.status === 'draft' ? '#draft-heading' : '#results-heading'}>
+        {exam.status === 'draft' ? 'Jump to draft review' : 'Jump to submissions'}
+      </a></p>}
       <Feedback status={feedbackArea === 'entry' ? pending || status : undefined} error={feedbackArea === 'entry' ? error : undefined} pending={feedbackArea === 'entry' && busy} />
 
       <div className="panels professor-entry">
         <section className="panel upload-panel" aria-labelledby="upload-heading">
-          <div className="section-title"><span className="icon-tile"><Icon name="document" /></span><h3 id="upload-heading" tabIndex={-1}>Upload an exam</h3></div>
+          <h3 id="upload-heading">Upload an exam</h3>
           <p>{demo ? 'Demo uploads open the sample draft for review. Demo work resets on reload or when you change data sources.' : 'Use an existing PDF or scan paper pages to send for review.'}</p>
           <div className="exam-input-options">
             <form noValidate onSubmit={event => {
@@ -188,7 +178,7 @@ export default function Professor({ api, demo, visible, onPublish, onBusyChange 
             setStatus(`Exam ${loaded.id} loaded.`);
           });
         }}>
-          <div className="section-title"><span className="icon-tile teal"><Icon name="search" /></span><h3>Open an existing exam</h3></div>
+          <h3>Open an existing exam</h3>
           <p>Return to a draft or find submissions for a published exam.</p>
           <label>Professor exam ID<input required dir="auto" value={lookupId} disabled={busy} onChange={event => setLookupId(event.target.value)} /></label>
           <button disabled={busy}>Open exam <Icon name="arrow" /></button>

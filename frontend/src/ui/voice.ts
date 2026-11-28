@@ -78,7 +78,7 @@ export interface VoiceApi {
 const modules = import.meta.glob<VoiceApi>('../voice/index.ts');
 const loadVoice = modules['../voice/index.ts'];
 
-type VoiceTask = { api?: VoiceApi; stopped: boolean; passive: boolean };
+type VoiceTask = { api?: VoiceApi; stopped: boolean };
 export type VoiceActivity = { phase: 'preparing' | 'listening' | 'speaking' | 'processing'; label: string };
 
 export function useVoice(visible: boolean, output: VoiceOutput) {
@@ -111,31 +111,37 @@ export function useVoice(visible: boolean, output: VoiceOutput) {
   }, [visible, clear, stop]);
 
   async function speak(api: VoiceApi, text: string) {
-    if (!task.current || task.current.stopped) return;
+    const current = task.current;
+    if (!current || current.stopped) return;
     lastMessage.current = text;
     setResult(text);
-    setAnnouncement(output === 'app' ? undefined : text);
-    if (output === 'screenReader') return;
+    if (output === 'screenReader') {
+      setAnnouncement(text);
+      return;
+    }
 
     api.stopListening();
+    setAnnouncement(undefined);
     setActivity({ phase: 'speaking', label: 'Reading aloud…' });
     try {
       await api.speak(text);
+      if (output === 'both' && task.current === current && !current.stopped) setAnnouncement(text);
     } catch {
-      setAnnouncement(text);
+      if (task.current !== current || current.stopped) return;
       setError('App speech is unavailable. The message is available to your screen reader.');
+      setAnnouncement(`App speech is unavailable. ${text}`);
     }
   }
 
-  async function run(pending: string, action: (api: VoiceApi, isCurrent: () => boolean) => Promise<void>, arrival = false) {
-    if (!loadVoice || !visible || (task.current && !task.current.passive)) return;
-    if (task.current) task.current.stopped = true;
-    const current: VoiceTask = { stopped: false, passive: arrival && output === 'screenReader' };
+  async function run(pending: string, action: (api: VoiceApi, isCurrent: () => boolean) => Promise<void>) {
+    if (!loadVoice || !visible || task.current) return;
+    const current: VoiceTask = { stopped: false };
     const trigger = document.activeElement;
+    const nearbyControls = trigger?.closest('.voice-panel');
     task.current = current;
     const isCurrent = () => task.current === current && !current.stopped;
     clear();
-    if (!current.passive) setActivity({ phase: 'preparing', label: pending });
+    setActivity({ phase: 'preparing', label: pending });
     try {
       const api = await loadVoice();
       if (!isCurrent()) return;
@@ -154,12 +160,12 @@ export function useVoice(visible: boolean, output: VoiceOutput) {
     } finally {
       if (task.current === current) {
         task.current = undefined;
-        if (!current.passive) {
-          setActivity(undefined);
-          if (trigger instanceof HTMLElement) requestAnimationFrame(() => {
-            if (document.activeElement === document.body && trigger.isConnected) trigger.focus();
-          });
-        }
+        setActivity(undefined);
+        if (trigger instanceof HTMLElement) requestAnimationFrame(() => {
+          if (document.activeElement !== document.body) return;
+          if (trigger.isConnected) trigger.focus();
+          if (document.activeElement === document.body) nearbyControls?.querySelector('summary')?.focus();
+        });
       }
     }
   }
@@ -169,8 +175,12 @@ export function useVoice(visible: boolean, output: VoiceOutput) {
       setKeyboardOnly(true);
       throw new UiError(api.prompts.keyboardMode);
     }
+    const current = task.current;
+    setAnnouncement(undefined);
     setActivity({ phase: 'listening', label: mode === 'dictation' ? 'Listening for your answer…' : 'Listening for a command…' });
-    return api.listenOnce({ mode });
+    const text = await api.listenOnce({ mode });
+    if (task.current === current && !current?.stopped) setActivity({ phase: 'processing', label: 'Processing voice input…' });
+    return text;
   }
 
   return {

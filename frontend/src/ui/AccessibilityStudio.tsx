@@ -67,12 +67,11 @@ function LivePreview() {
   const [second, setSecond] = useState(false);
   return (
     <section className="studio-preview" aria-labelledby="studio-preview-heading">
-      <h3 id="studio-preview-heading" tabIndex={-1}>Live preview</h3>
-      <p className="studio-help">Sample content for trying your settings.</p>
+      <h3 id="studio-preview-heading">Sample exam content</h3>
       <div className="studio-preview-card">
         <span className="tag">Sample question {second ? 2 : 1}</span>
         <p className="studio-preview-question reading-surface">{second ? 'How would you describe the connection between nodes A and B?' : 'Explain how the current changes when the resistance increases.'}</p>
-        <label>Sample answer<textarea className="reading-surface" rows={2} placeholder="Type here to try your settings." /></label>
+        <label>Sample answer<textarea className="reading-surface" rows={2} placeholder="Try typing." /></label>
         <button id="studio-sample-navigation" type="button" onClick={() => setSecond(current => !current)}>{second ? 'Previous sample question' : 'Next sample question'} <Icon name={second ? 'back' : 'arrow'} /></button>
         <a href="#studio-sample-navigation" onClick={event => {
           event.preventDefault();
@@ -137,26 +136,21 @@ export default function AccessibilityStudio({ studioRef }: { studioRef: Ref<Acce
     <div className="studio-entry">
       <button type="button" ref={trigger} className="studio-trigger" aria-haspopup="dialog" aria-controls="accessibility-studio"
         onClick={event => show(event.currentTarget)}><Icon name="accessibility" /> Accessibility</button>
-      <dialog ref={dialog} id="accessibility-studio" className="studio-dialog" aria-labelledby="studio-title" aria-describedby="studio-subtitle"
+      <dialog ref={dialog} id="accessibility-studio" className="studio-dialog" aria-labelledby="studio-title" aria-describedby="studio-help"
         onClose={() => (returnFocus.current?.isConnected ? returnFocus.current : trigger.current)?.focus()}>
         <div className="studio-shell">
           <div className="studio-header">
-            <div className="section-title"><span className="icon-tile"><Icon name="accessibility" /></span>
-              <div><h2 ref={title} id="studio-title" tabIndex={-1}>Accessibility Studio</h2><p id="studio-subtitle">Your exam, your way.</p></div>
-            </div>
+            <h2 ref={title} id="studio-title" tabIndex={-1}>Accessibility Studio</h2>
             <button type="button" aria-label="Close Accessibility Studio" onClick={() => dialog.current?.close()}>Close</button>
           </div>
 
-          <div className="studio-intro">
-            <p>Changes apply immediately. {storageAvailable ? 'Your preferences are saved in this browser.' : 'Browser storage is unavailable. Changes apply for this visit.'}</p>
-            <a href="#studio-preview-heading">Jump to live preview</a>
-          </div>
+          <p className="studio-intro" id="studio-help">Changes apply immediately. {storageAvailable ? 'Your preferences are saved in this browser.' : 'Browser storage is unavailable. Changes apply for this visit.'}</p>
 
           <div className="studio-layout">
             <div className="studio-settings">
               <fieldset className="studio-section">
-                <legend>Reading and typography</legend>
-                {(Object.keys(ranges) as RangeKey[]).map(key => <RangeSetting key={key} setting={key} value={preferences[key]} change={value => set(key, value)} />)}
+                <legend>Reading</legend>
+                <RangeSetting setting="textSize" value={preferences.textSize} change={value => set('textSize', value)} />
               </fieldset>
 
               <fieldset className="studio-section">
@@ -164,10 +158,14 @@ export default function AccessibilityStudio({ studioRef }: { studioRef: Ref<Acce
                 <div className="studio-themes">
                   {themes.map(theme => <label key={theme.id} className="studio-theme-tile">
                     <input type="radio" name="studio-theme" value={theme.id} checked={theme.id === preferences.theme} onChange={() => set('theme', theme.id)} />
-                    <span className="studio-theme-sample" data-preset={theme.id} aria-hidden="true"><span>Aa</span><i /></span>
                     <span className="studio-theme-name">{theme.name}</span>
                   </label>)}
                 </div>
+              </fieldset>
+              <details className="studio-disclosure">
+                <summary>Custom colors and spacing</summary>
+                {(['lineHeight', 'letterSpacing', 'wordSpacing'] as const).map(key =>
+                  <RangeSetting key={key} setting={key} value={preferences[key]} change={value => set(key, value)} />)}
                 <Toggle checked={preferences.customColors} change={value => set('customColors', value)} label="Custom reading colors"
                   hint="Personalize exam text and answer surfaces. Controls keep their preset colors." />
                 {preferences.customColors && (
@@ -183,19 +181,22 @@ export default function AccessibilityStudio({ studioRef }: { studioRef: Ref<Acce
                     </p>
                   </div>
                 )}
-              </fieldset>
+              </details>
 
-              <fieldset className="studio-section">
-                <legend>Focus and visibility</legend>
+              <details className="studio-disclosure">
+                <summary>Focus and visibility</summary>
                 <Toggle checked={preferences.enhancedFocus} change={value => set('enhancedFocus', value)} label="Enhanced keyboard focus" hint="Use a thicker, higher contrast outline." />
                 <Toggle checked={preferences.reduceMotion} change={value => set('reduceMotion', value)} label="Reduce motion" hint="Turn off decorative transitions and animations." />
                 <Toggle checked={preferences.underlinedLinks} change={value => set('underlinedLinks', value)} label="Underlined links" hint="Use a stronger underline on links." />
                 <Toggle checked={preferences.enhancedBorders} change={value => set('enhancedBorders', value)} label="Enhanced control boundaries" hint="Thicken the borders around fields and buttons." />
                 <Toggle checked={preferences.questionSeparation} change={value => set('questionSeparation', value)} label="Separate questions and answers" hint="Add clear boundaries around exam prompts and answer areas." />
-              </fieldset>
+              </details>
               <div className="studio-reset"><button type="button" onClick={reset}>Reset to defaults</button><p role="status">{announcement}</p></div>
             </div>
-            <LivePreview />
+            <details className="studio-disclosure">
+              <summary>Live preview</summary>
+              <LivePreview />
+            </details>
           </div>
         </div>
       </dialog>

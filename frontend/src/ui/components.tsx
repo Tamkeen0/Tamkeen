@@ -1,8 +1,6 @@
 import { useLayoutEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { Session } from '../../../contracts/types';
-import { Icon } from './icons';
-import type { IconName } from './icons';
 
 export function useObjectUrl(blob?: Blob) {
   const [url, setUrl] = useState<string>();
@@ -18,13 +16,12 @@ export function useObjectUrl(blob?: Blob) {
   return url;
 }
 
-export function WorkspaceIntro({ title, description, label, icon }: {
-  title: ReactNode; description: ReactNode; label?: string; icon?: IconName;
+export function WorkspaceIntro({ title, description, headingId }: {
+  title: ReactNode; description: ReactNode; headingId?: string;
 }) {
   return (
     <div className="intro">
-      {label && <p className="overline">{icon && <Icon name={icon} />}{label}</p>}
-      <h2 tabIndex={-1}>{title}</h2>
+      <h2 id={headingId} tabIndex={-1}>{title}</h2>
       <p>{description}</p>
     </div>
   );
@@ -34,7 +31,7 @@ export function Feedback({ status, error, pending = false }: { status?: string; 
   return (
     <div className="feedback">
       <p className="feedback-status" role="status" aria-atomic="true" data-pending={pending || undefined}>
-        {status && <>{pending && <span className="loading-mark" aria-hidden="true" />}{status}</>}
+        {status}
       </p>
       <p className="feedback-error" role="alert" aria-atomic="true">{error && <bdi>{error}</bdi>}</p>
     </div>
