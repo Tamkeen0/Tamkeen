@@ -16,7 +16,7 @@ from .exams import (
     extract_fixture,
     validate_draft,
 )
-from .store import ExamStore, Session
+from .store import ExamStore, Session, normalize_exam_id
 
 MAX_PDF_BYTES = 10 * 1024 * 1024
 
@@ -97,7 +97,7 @@ def create_app(*, extractor: Extractor | None = None) -> FastAPI:
     def save_draft(exam_id: str, draft: Annotated[Exam, Body()]) -> Exam:
         try:
             validate_draft(draft)
-            if draft["id"] != exam_id:
+            if draft["id"] != normalize_exam_id(exam_id):
                 raise InvalidDraft("The draft ID must match the exam ID in the URL.")
         except InvalidDraft as error:
             raise HTTPException(400, str(error)) from error
